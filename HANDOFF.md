@@ -9,7 +9,9 @@ Terminé quand : `make bootstrap` est rejouable sans erreur. Lire d'abord `docs/
 
 - J1 validé : repo, Docker (Airflow sur :8081), Postgres, base `collecte`, spike du flux.
 - J2 en place : DAG `collecte_flux` toutes les 15 min, collecte continue lancée le 2026-10-23.
-- 41 tests verts (`make test`). Flux réel : 9 816 stations, environ 31 500 lignes de prix par passage.
+- 38 tests verts dans le conteneur (41 avec le test de parsing du DAG). Flux réel : 9 816 stations, environ 31 500 lignes de prix par passage.
+- Mesure en base (2026-10-23, dernier passage 11:00 UTC) : 33 180 lignes dans `prix_flux`, 10 003 versions dans `station_etat_flux` (9 816 stations à la première photo, 187 versions de plus). Garde-fou non déclenché.
+- `make` non installé sur la machine (`winget install ezwinports.make`) : lancer la commande pytest directement. Dépôt GitHub distant à créer, commits locaux à faire.
 - Airflow 3.0.6, service `airflow` en mode `standalone`. Un `up --build` qui recrée le conteneur remet le DAG en pause : relancer `unpause`.
 
 ## Décisions d'architecture
@@ -40,6 +42,12 @@ docker compose exec airflow airflow dags unpause collecte_flux
 docker compose exec airflow airflow dags list-runs collecte_flux
 ```
 
+Comptage en base (psql via PowerShell est peu fiable, on passe par Python) :
+
+```powershell
+docker compose exec -w /opt/airflow/project airflow python -c "import os,psycopg2; c=psycopg2.connect(os.environ['COLLECTE_DSN']).cursor(); c.execute('select count(*) from prix_flux'); print('prix', c.fetchone()[0]); c.execute('select count(*) from station_etat_flux'); print('etats', c.fetchone()[0]); c.execute('select max(collecte_ts) from prix_flux'); print('dernier passage', c.fetchone()[0])"
+```
+
 ## Erreurs résolues
 
 - Image Airflow non reconstruite : le compose doit avoir `build:` et non `image:`.
@@ -47,10 +55,11 @@ docker compose exec airflow airflow dags list-runs collecte_flux
 - pytest absent de l'image : ajouté à `airflow/requirements.txt`. Lancer depuis `/opt/airflow/project`.
 - Dates en avance de 2 h : voir décision sur les dates.
 - PowerShell transforme stderr en `RemoteException` dans un pipe : écrire le log dans un fichier côté conteneur.
+- Doublon `j2-collecte/` créé par une extraction dans un sous-dossier : extraire à la racine avec `Expand-Archive -Force`, comparer avant de supprimer.
 
 ## Points ouverts
 
-- Vérifier le contenu de `station_etat_flux` : environ 9 800 états au premier passage, puis peu de changements. Si "champ volatil probable" : exclure la clé nommée dans `_est_volatil`.
+- Surveiller que le dernier passage avance (comptage ci-dessus). Si `charger` échoue avec "champ volatil probable" : exclure la clé nommée dans `_est_volatil`.
 - Métadonnées d'Airflow encore dans le conteneur : passer sur la base Postgres `airflow`.
 - Nuit du 25 octobre : heure répétée, fuseau ambigu (première occurrence retenue).
 - Épingler les versions exactes de `airflow/requirements.txt`.
