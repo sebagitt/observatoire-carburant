@@ -1,20 +1,22 @@
-﻿.env
+﻿# Secrets et environnement
+.env
 .venv/
+.history/
+
+# Python et tests
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Données locales (lots parquet de la collecte)
 data/
+
+# Airflow et dbt (générés)
 airflow/logs/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 
+# Debriefs et guide : jamais poussés sur GitHub
 docs/journal/
 docs/guide/
-data/lots/*
-!data/lots/.gitkeep
-
-docs/journal/
-docs/guide/
-
-.history/
