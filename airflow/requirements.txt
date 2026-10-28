@@ -1,0 +1,7 @@
+# Épingler les versions exactes après le premier build (pip freeze dans le conteneur).
+great-expectations>=1.7,<2
+pandas
+pyarrow
+requests
+psycopg2-binary
+pytest
