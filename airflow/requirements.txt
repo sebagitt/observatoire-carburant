@@ -1,7 +1,7 @@
-# Épingler les versions exactes après le premier build (pip freeze dans le conteneur).
-great-expectations>=1.7,<2
-pandas
-pyarrow
-requests
-psycopg2-binary
-pytest
+# Versions relevées par pip freeze dans le conteneur le 2026-10-29 (Python 3.12.11, Airflow 3.0.6).
+great-expectations==1.24.1
+pandas==2.1.4
+pyarrow==18.1.0
+requests==2.32.5
+psycopg2-binary==2.9.10
+pytest==8.4.1
