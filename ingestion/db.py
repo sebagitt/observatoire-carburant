@@ -1,6 +1,7 @@
 """Tampon Postgres append-only : prix_flux (dédoublonné sur la clé) et station_etat_flux (versions d'état)."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 SQL_DIR = Path(__file__).parent / "sql"
+LOG = logging.getLogger(__name__)
 
 
 def connecter(dsn: str | None = None):
@@ -133,3 +135,56 @@ def charger_etats(conn, df: pd.DataFrame, collecte_ts: datetime, max_part_change
         raise
     conn.commit()
     return {"lot": len(lignes), "inserees": inserees, "nouvelles": len(lignes) - connues, "changees": changees}
+
+
+def enregistrer_passage(
+    conn,
+    collecte_ts: datetime,
+    run_planifie: datetime | None,
+    lignes_lues: int,
+    lignes_inserees: int,
+    etats_changes: int | None,
+) -> bool:
+    """Journalise un passage. Ne lève jamais d'Exception : le journal ne doit pas faire échouer la collecte."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO passage_flux (collecte_ts, run_planifie, lignes_lues, lignes_inserees, etats_changes)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (collecte_ts) DO NOTHING
+                """,
+                (collecte_ts, run_planifie, lignes_lues, lignes_inserees, etats_changes),
+            )
+        conn.commit()
+        return True
+    except Exception as erreur:
+        LOG.warning("Journal des passages non écrit (%s)", type(erreur).__name__)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def journaliser_passage(
+    collecte_ts: datetime,
+    run_planifie: datetime | None,
+    lignes_lues: int,
+    lignes_inserees: int,
+    etats_changes: int | None,
+    dsn: str | None = None,
+) -> bool:
+    """Comme enregistrer_passage, sur une connexion dédiée : un échec ici n'atteint jamais la collecte."""
+    try:
+        conn = connecter(dsn)
+    except Exception as erreur:
+        LOG.warning("Journal des passages : connexion impossible (%s)", type(erreur).__name__)
+        return False
+    try:
+        return enregistrer_passage(conn, collecte_ts, run_planifie, lignes_lues, lignes_inserees, etats_changes)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

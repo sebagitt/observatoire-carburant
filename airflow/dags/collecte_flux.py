@@ -17,13 +17,22 @@ from pathlib import Path
 import pendulum
 
 try:  # Airflow 3
-    from airflow.sdk import dag, task
+    from airflow.sdk import dag, get_current_context, task
 except ImportError:  # Airflow 2
     from airflow.decorators import dag, task
+    from airflow.operators.python import get_current_context
 from airflow.exceptions import AirflowFailException
 
 LOG = logging.getLogger(__name__)
 DOSSIER_LOTS = Path(os.environ.get("LOTS_DIR", "/opt/airflow/data/lots"))
+
+
+def _run_planifie():
+    """Heure planifiée du run (logical_date), None si absente (déclenchement manuel)."""
+    try:
+        return get_current_context().get("logical_date")
+    except Exception:
+        return None
 
 
 @dag(
@@ -78,9 +87,17 @@ def collecte_flux():
     def charger(lot: dict) -> dict:
         import pandas as pd
 
-        from ingestion.db import EtatsInstablesError, charger_etats, charger_prix, connecter, ensure_schema
+        from ingestion.db import (
+            EtatsInstablesError,
+            charger_etats,
+            charger_prix,
+            connecter,
+            ensure_schema,
+            journaliser_passage,
+        )
 
         collecte_ts = datetime.fromisoformat(lot["collecte_ts"])
+        run_planifie = _run_planifie()
         conn = connecter()
         try:
             ensure_schema(conn)
@@ -92,8 +109,16 @@ def collecte_flux():
                 compteurs["etats"] = charger_etats(conn, pd.read_parquet(lot["chemin_etat"]), collecte_ts)
             except EtatsInstablesError as erreur:
                 # Les prix sont déjà chargés ; on ne réessaie pas, le problème est dans la source.
+                journaliser_passage(collecte_ts, run_planifie, compteurs["prix"]["lot"], compteurs["prix"]["inserees"], None)
                 raise AirflowFailException(str(erreur)) from erreur
             LOG.info("États : %s", compteurs["etats"])
+            journaliser_passage(
+                collecte_ts,
+                run_planifie,
+                compteurs["prix"]["lot"],
+                compteurs["prix"]["inserees"],
+                compteurs["etats"]["changees"],
+            )
         finally:
             conn.close()
         Path(lot["chemin"]).unlink(missing_ok=True)
