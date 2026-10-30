@@ -26,6 +26,7 @@ services:
       - ./ingestion:/opt/airflow/project/ingestion
       - ./quality:/opt/airflow/project/quality
       - ./data/lots:/opt/airflow/data/lots
+      - ./data/referentiels:/opt/airflow/data/referentiels
     ports:
       - "8081:8080"
     command: standalone
