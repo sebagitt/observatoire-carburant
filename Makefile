@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-ingestion collecte-run rehash-etats
+.PHONY: up down pause reprise test test-ingestion collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -27,3 +27,7 @@ collecte-run:
 #   make rehash-etats ARGS=--confirmer  écrit le recalcul
 rehash-etats:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.rehash $(ARGS)
+
+# Mesures de la fiche carburants, dans le conteneur : make mesure-carburants M=m1 (m1 à m4)
+mesure-carburants:
+	docker compose exec -w /opt/airflow/project airflow python -m ingestion.mesures_carburants $(M)
