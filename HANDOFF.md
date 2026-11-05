@@ -19,6 +19,9 @@ Terminé quand : `make bootstrap` est rejouable sans erreur, les fiches COG, Fil
 - Collecte en marche (DAG `collecte_flux`, toutes les 15 min). Runs de 13:30, 13:45, 14:00 en success. `is_paused` False. `list-import-errors` vide.
 - Base `collecte` : `prix_flux` 98 101, `station_etat_flux` 15 959, `passage_flux` 30 (mesuré à 14:02).
 - 87 tests verts (`make test`, mesuré à 14:25). Fiche carburants committée : `docs/fiches-source/carburants.md`. M1 à M5 et M8 faites, M6 et M7 non mesurées.
+- Arrêt propre à 14:37 UTC par `make pause` (conteneurs `Exited`, ni supprimés ni recréés, volume et métadonnées conservés). Dernier run avant l'arrêt : 14:30 en success. Comptes à 14:36 : `prix_flux` 98 290, `station_etat_flux` 16 044, `passage_flux` 32.
+- Sauvegarde du 05/11 14:36:45 UTC : `data/backups/collecte_20261105T143645Z.dump`, 4 986 716 octets, format custom, 3 tables de données (ignorée par git).
+- Dépôt poussé à 14:36 UTC (`659f938` sur origin/main).
 - Airflow redémarré à 12:45:25 (`docker compose restart airflow`), preuve après le run de 13:00.
 - Dépôt : branche `main`, plus de 17 commits d'avance sur origin (non poussés tant que l'utilisateur n'a pas donné son accord). `docs/journal/` et `docs/guide/` sont ignorés par git.
 - Pas d'hôte 24/7 : la collecte s'arrête avec le projet (jusqu'à J15 plus 7 jours), à écrire dans le README.
@@ -36,6 +39,7 @@ Terminé quand : `make bootstrap` est rejouable sans erreur, les fiches COG, Fil
 | 13:15 | 2,19 Gio | 143 | 27 | 1 |
 | 13:47 | 2,81 Gio | 150 | 31 | 0 |
 | 14:02 | 3,12 Gio | 153 | 34 | 0 |
+| 14:36 (avant `make pause`) | 3,46 Gio | 160 | 41 | 0 |
 
 Hausse monotone depuis le restart (environ 20 Mio par minute), 12 workers `LocalExecutor` inactifs à 13:49. Cause non vérifiée. Seuil d'alerte : 6 Gio. Extrapolation linéaire : 6 Gio vers 16:20 à 16:30 UTC. `make reprise` affiche mémoire et PIDS avec avertissement au-delà de 6 Gio.
 
