@@ -1,6 +1,9 @@
+import struct
 from datetime import datetime, timedelta, timezone
 
-from ingestion.mesures_carburants import classer_disparitions, est_vide, lots_ecartes, resume, taux_nulls
+import pytest
+
+from ingestion.mesures_carburants import classer_disparitions, entete_zip, est_vide, lots_ecartes, resume, taux_nulls
 
 T0 = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -38,6 +41,24 @@ def test_resume_mediane_et_p95_par_rang():
     assert resume(range(1, 101)) == {"n": 100, "moyenne": 50.5, "mediane": 50.5, "p95": 95}
     assert resume([]) == {"n": 0, "moyenne": None, "mediane": None, "p95": None}
     assert resume([7])["p95"] == 7
+
+
+def test_entete_zip_lit_nom_tailles_et_debut_des_donnees():
+    nom = b"PrixCarburants_annuel_2026.xml"
+    octets = struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 2, 8, 0, 0, 0, 31744663, 359376940, len(nom), 4) + nom + b"xxxx" + b"donnees"
+    assert entete_zip(octets) == {
+        "nom": "PrixCarburants_annuel_2026.xml",
+        "methode": 8,
+        "comprimee": 31744663,
+        "decompressee": 359376940,
+        "debut_donnees": 30 + len(nom) + 4,
+    }
+    assert octets[30 + len(nom) + 4 :] == b"donnees"
+
+
+def test_entete_zip_refuse_autre_chose_qu_un_zip():
+    with pytest.raises(ValueError):
+        entete_zip(b"<html>" + b"0" * 40)
 
 
 def entree(carburant, debut, type_="temporaire"):
