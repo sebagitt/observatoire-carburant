@@ -5,6 +5,7 @@ Rejeu, dans le conteneur airflow : python -m ingestion.mesures_carburants m1|m2|
   m2 : taux de changement des prix et des états, AVEC et SANS les lots de rattrapage
   m3 : code commune (quotidien) et couverture des id de l'instantané
   m4 : historique (quotidien, flux annuel de roulez-eco, en-têtes HTTP seulement)
+  m4b : début du flux annuel (au plus 256 Ko lus, le serveur ignore Range) : granularité des enregistrements
 Critère de rattrapage unique : premier passage dont l'écart avec le précédent dépasse 20 minutes.
 """
 from __future__ import annotations
@@ -14,6 +15,8 @@ import collections
 import json
 import re
 import statistics
+import struct
+import zlib
 from datetime import date, timedelta
 from urllib.parse import urljoin
 
@@ -274,7 +277,49 @@ def m4() -> None:
         print(f"  {libelle:38s}", p.json().get("results") if p.ok else f"HTTP {p.status_code} : non vérifié")
 
 
-MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4}
+def entete_zip(octets: bytes) -> dict:
+    """En-tête local du premier membre d'un zip : nom, méthode, tailles, octets de données qui suivent."""
+    signature, _v, _f, methode, _t, _d, _crc, comprimee, decompressee, n_nom, n_extra = struct.unpack("<IHHHHHIIIHH", octets[:30])
+    if signature != 0x04034B50:
+        raise ValueError("pas un en-tête local de zip")
+    return {
+        "nom": octets[30 : 30 + n_nom].decode("utf-8"),
+        "methode": methode,
+        "comprimee": comprimee,
+        "decompressee": decompressee,
+        "debut_donnees": 30 + n_nom + n_extra,
+    }
+
+
+def m4b(taille_max: int = 256 * 1024) -> None:
+    """Début du flux annuel : au plus 256 Ko lus (le serveur ignore Range), jamais de téléchargement complet."""
+    for annee in ("2026", "2025"):
+        url = f"{ROULEZ}annee/{annee}"
+        with requests.get(url, headers={**EN_TETES, "Range": f"bytes=0-{taille_max - 1}"}, stream=True, timeout=60) as r:
+            octets = next(r.iter_content(taille_max), b"")
+            while len(octets) < taille_max:
+                suite = next(r.iter_content(taille_max - len(octets)), b"")
+                if not suite:
+                    break
+                octets += suite
+            statut, contenu_range = r.status_code, r.headers.get("Content-Range")
+        en_tete = entete_zip(octets)
+        texte = zlib.decompressobj(-15).decompress(octets[en_tete["debut_donnees"] :]).decode("iso-8859-1")
+        prix = re.findall(r'<prix nom="([^"]*)" id="\d" maj="([^"]*)" valeur="([^"]*)"', texte)
+        identiques = total = 0
+        for bloc in texte.split("<pdv ")[1:]:  # un bloc par station, la dernière est tronquée
+            par_carburant = collections.defaultdict(list)
+            for nom, _maj, valeur in re.findall(r'<prix nom="([^"]*)" id="\d" maj="([^"]*)" valeur="([^"]*)"', bloc):
+                par_carburant[nom].append(valeur)
+            identiques += sum(a == b for v in par_carburant.values() for a, b in zip(v, v[1:]))
+            total += sum(len(v) - 1 for v in par_carburant.values())
+        print(f"## M4b {annee} : HTTP {statut}, Content-Range {contenu_range} (None = Range ignoré), {len(octets)} octets lus")
+        print(f"  membre {en_tete['nom']}, méthode {en_tete['methode']}, {en_tete['comprimee']} comprimés, {en_tete['decompressee']} décompressés")
+        print(f"  extrait : {texte.count('<pdv ')} stations (partielles), {len(prix)} enregistrements prix, maj de {min(p[1] for p in prix)} à {max(p[1] for p in prix)}")
+        print(f"  valeur identique à l'enregistrement précédent (même carburant, toutes stations de l'extrait) : {identiques}/{total}")
+
+
+MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b}
 
 
 def main(argv=None) -> None:
