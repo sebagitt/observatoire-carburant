@@ -69,13 +69,34 @@ def _est_volatil(cle: str) -> bool:
     return cle in ("id", "prix") or cle.endswith(("_prix", "_maj"))
 
 
+def _json_dans_chaine(valeur):
+    """Liste ou dict encodé dans une chaîne (services, rupture, horaires) ; None pour toute autre valeur."""
+    if isinstance(valeur, str) and valeur[:1] in ("{", "["):
+        try:
+            contenu = json.loads(valeur)
+        except ValueError:
+            return None
+        if isinstance(contenu, (dict, list)):
+            return contenu
+    return None
+
+
 def _normaliser(valeur):
-    """Forme canonique pour le hash : l'ordre des listes ne compte pas."""
+    """Forme canonique pour le hash : l'ordre des listes ne compte pas, y compris dans les chaînes JSON."""
+    contenu = _json_dans_chaine(valeur)
+    if contenu is not None:
+        valeur = contenu
     if isinstance(valeur, dict):
         return {k: _normaliser(v) for k, v in valeur.items()}
     if isinstance(valeur, list):
         return sorted((_normaliser(v) for v in valeur), key=lambda v: json.dumps(v, sort_keys=True))
     return valeur
+
+
+def hash_etat(etat: dict) -> str:
+    """Hash de l'état sous sa forme canonique (recalculable depuis le JSONB stocké)."""
+    canonique = json.dumps(_normaliser(etat), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonique.encode("utf-8")).hexdigest()
 
 
 def construire_etats(stations: list[dict]) -> pd.DataFrame:
@@ -85,12 +106,5 @@ def construire_etats(stations: list[dict]) -> pd.DataFrame:
         if s.get("id") is None:
             continue
         etat = {k: v for k, v in s.items() if not _est_volatil(k)}
-        canonique = json.dumps(_normaliser(etat), sort_keys=True, ensure_ascii=False)
-        lignes.append(
-            (
-                int(s["id"]),
-                hashlib.sha256(canonique.encode("utf-8")).hexdigest(),
-                json.dumps(etat, sort_keys=True, ensure_ascii=False),
-            )
-        )
+        lignes.append((int(s["id"]), hash_etat(etat), json.dumps(etat, sort_keys=True, ensure_ascii=False)))
     return pd.DataFrame(lignes, columns=COLONNES_ETAT)
