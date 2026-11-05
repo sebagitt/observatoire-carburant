@@ -2,7 +2,8 @@
 
 Le bootstrap ne doit créer que les schémas carburant_bronze, carburant_silver, carburant_gold et un Volume dans
 carburant_bronze. verifier_perimetre refuse toute autre instruction (DROP, ALTER, GRANT, CREATE CATALOG, schéma
-inconnu, ci_silver, ci_gold, default) avant tout envoi. L'exécution contre Databricks n'est pas écrite ici.
+inconnu) avant tout envoi. Les schémas bronze, silver, gold, ci_silver, ci_gold et default appartiennent à un autre
+projet (EnergiScope) : ils ne sont jamais touchés. L'exécution contre Databricks n'est pas écrite ici.
 """
 from __future__ import annotations
 

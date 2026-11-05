@@ -13,8 +13,8 @@ def test_le_sql_cree_les_trois_schemas_et_un_volume_sans_catalogue():
     assert cree["volumes"] == ["carburant_bronze.depot"]
 
 
-@pytest.mark.parametrize("autre", ["ci_silver", "ci_gold", "default", "information_schema", "autre_projet"])
-def test_aucun_schema_hors_carburant_n_est_touche(autre):
+@pytest.mark.parametrize("autre", ["bronze", "silver", "gold", "ci_silver", "ci_gold", "default", "information_schema"])
+def test_aucun_schema_de_l_autre_projet_n_est_touche(autre):  # EnergiScope : bronze, silver, gold, ci_*, default
     for instruction in (f"CREATE SCHEMA IF NOT EXISTS {autre}", f"CREATE VOLUME IF NOT EXISTS {autre}.depot"):
         with pytest.raises(ValueError):
             verifier_perimetre([instruction])
