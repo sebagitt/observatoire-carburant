@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from ingestion.mesures_carburants import classer_disparitions, entete_zip, est_vide, lots_ecartes, resume, taux_nulls
+from ingestion.carburants import _vers_utc
+from ingestion.mesures_carburants import classer_disparitions, entete_zip, est_vide, latence_minutes, lots_ecartes, resume, taux_nulls
 
 T0 = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -85,3 +86,15 @@ def test_classer_disparitions_quatre_categories():
 def test_classer_disparitions_rien_si_les_entrees_restent():
     v = [("t1", [entree("1", "2026-10-01")]), ("t2", [entree("1", "2026-10-01")])]
     assert classer_disparitions(v) == []
+
+
+def test_latence_jamais_negative_apres_conversion_paris_en_ete_et_en_hiver():
+    # maj lue comme heure murale de Paris : UTC+2 en été, UTC+1 en hiver ; la source publie 5 minutes après la mise à jour
+    for mur, collecte in (("2026-10-24T12:00:00", datetime(2026, 10, 24, 10, 5, tzinfo=timezone.utc)), ("2026-10-26T12:00:00", datetime(2026, 10, 26, 11, 5, tzinfo=timezone.utc))):
+        assert latence_minutes(collecte, _vers_utc(mur).to_pydatetime()) == 5
+
+
+def test_une_conversion_sans_decalage_donnerait_une_latence_negative_en_hiver():
+    # garde-fou : si maj était lue en UTC alors que c'est de l'heure de Paris, la latence d'hiver serait de -55 minutes
+    collecte = datetime(2026, 10, 26, 11, 5, tzinfo=timezone.utc)
+    assert latence_minutes(collecte, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)) == -55
