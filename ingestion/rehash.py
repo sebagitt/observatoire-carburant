@@ -1,7 +1,12 @@
 """Recalcul des hash de station_etat_flux avec la règle canonique (listes dans les chaînes JSON triées).
 
-Opération de maintenance, à rejouer sans risque : seul etat_hash est réécrit (etat et collecte_ts ne bougent pas),
-les anciens hash sont conservés dans SAUVEGARDE, à supprimer après vérification.
+Opération de maintenance, rejouable (un second passage écrit 0 ligne). Exception assumée à la règle append-only
+de ce tampon : c'est un UPDATE de station_etat_flux. Seul etat_hash est réécrit (etat et collecte_ts ne bougent
+pas), les anciens hash sont conservés dans SAUVEGARDE, à supprimer après vérification.
+
+Retour arrière : un UPDATE depuis SAUVEGARDE n'est valable que tant qu'aucun passage n'a écrit de version avec la
+règle canonique. Dès qu'un run a chargé des états après le recalcul, il faut restaurer le pg_dump pris avant.
+
 Simulation par défaut : python -m ingestion.rehash [--confirmer]
 """
 from __future__ import annotations
