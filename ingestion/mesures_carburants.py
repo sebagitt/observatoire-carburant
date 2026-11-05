@@ -6,6 +6,8 @@ Rejeu, dans le conteneur airflow : python -m ingestion.mesures_carburants m1|m2|
   m3 : code commune (quotidien) et couverture des id de l'instantané
   m4 : historique (quotidien, flux annuel de roulez-eco, en-têtes HTTP seulement)
   m4b : début du flux annuel (au plus 256 Ko lus, le serveur ignore Range) : granularité des enregistrements
+  m5 : latence collecte_ts moins maj, AVEC et SANS les lots écartés, minimum, régime d'été et d'hiver
+  m8 : volumétrie du tampon (lignes, octets), croissance par jour hors rattrapage, poids d'un téléchargement
 Critère de rattrapage unique : premier passage dont l'écart avec le précédent dépasse 20 minutes.
 """
 from __future__ import annotations
@@ -22,7 +24,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from ingestion.carburants import telecharger_flux
+from ingestion.carburants import FLUX_URL as FLUX_URL_M8, telecharger_flux
 from ingestion.db import connecter
 
 SEUIL_RATTRAPAGE = timedelta(minutes=20)
@@ -32,6 +34,7 @@ CHEMINS_ROULEZ = ("opendata/instantane", "opendata/jour", "opendata/annee", "ope
 EN_TETES = {"User-Agent": "observatoire-carburant"}
 # Premier passage dont les états sont un rattrapage alors que l'écart entre passages est normal (1889 versions).
 ETATS_RATTRAPAGE_SUPPLEMENTAIRES = ("2026-11-05 10:15:02.514229+00",)
+REGIME_HIVER = "2026-10-25 01:00:00+00"  # fin de l'heure d'été en France : 03:00 UTC+2 devient 02:00 UTC+1
 DEBUT_JOURNAL = "2026-10-30 13:15:00+00"  # avant : passage_flux n'existe pas, les passages sans insertion sont invisibles
 
 
@@ -319,7 +322,89 @@ def m4b(taille_max: int = 256 * 1024) -> None:
         print(f"  valeur identique à l'enregistrement précédent (même carburant, toutes stations de l'extrait) : {identiques}/{total}")
 
 
-MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b}
+def latence_minutes(collecte_ts, maj) -> float:
+    """Latence de publication d'une ligne, en minutes : notre passage moins la date de mise à jour de la source."""
+    return (collecte_ts - maj).total_seconds() / 60
+
+
+def m5() -> None:
+    """Latence par ligne insérée (collecte_ts moins maj), AVEC et SANS les lots écartés, et latence minimale."""
+    conn = _lecture()
+    try:
+        with conn.cursor() as cur:
+            ecartes = {ts for ts, _ in lots_ecartes([p[0] for p in _passages(cur)])}
+            cur.execute("SELECT collecte_ts, maj FROM prix_flux")
+            lignes = cur.fetchall()
+            cur.execute("SELECT %s::timestamptz", (REGIME_HIVER,))
+            hiver = cur.fetchone()[0]
+    finally:
+        conn.close()
+    avec = [(ts, latence_minutes(ts, maj), maj) for ts, maj in lignes]
+    sans = [x for x in avec if x[0] not in ecartes]
+    print(f"## M5 latence (minutes) par ligne de prix, {len(avec)} lignes ; lots écartés : {len(ecartes)} (critère unique > 20 min)")
+    for titre, jeu in (("AVEC les lots de rattrapage", avec), ("SANS les lots de rattrapage", sans)):
+        r = resume([x[1] for x in jeu])
+        valeurs = [x[1] for x in jeu]
+        print(f"  {titre:30s} n={r['n']}  min={min(valeurs):.1f}  médiane={r['mediane']:.1f}  p95={r['p95']:.1f}  max={max(valeurs):.1f}  négatives={sum(v < 0 for v in valeurs)}")
+    for titre, jeu in (("SANS, maj en heure d'été (UTC+2)", [x for x in sans if x[2] < hiver]), ("SANS, maj en heure d'hiver (UTC+1)", [x for x in sans if x[2] >= hiver])):
+        valeurs = [x[1] for x in jeu]
+        if valeurs:
+            r = resume(valeurs)
+            print(f"  {titre:36s} n={r['n']}  min={min(valeurs):.1f}  médiane={r['mediane']:.1f}  p95={r['p95']:.1f}  négatives={sum(v < 0 for v in valeurs)}")
+    print("  Notre sondage toutes les 15 min ajoute 0 à 15 min (7,5 min en moyenne) à ces latences.")
+
+
+TABLES = ("prix_flux", "station_etat_flux", "passage_flux")
+
+
+def m8() -> None:
+    """Volumétrie du tampon : lignes et octets par table, croissance par jour hors rattrapage, poids d'un téléchargement."""
+    conn = _lecture()
+    try:
+        with conn.cursor() as cur:
+            ecartes = {ts for ts, _ in lots_ecartes([p[0] for p in _passages(cur)])}
+            tailles = {}
+            for table in TABLES:
+                cur.execute(f"SELECT count(*), pg_total_relation_size('{table}'), pg_relation_size('{table}') FROM {table}")
+                tailles[table] = cur.fetchone()
+            cur.execute("SELECT date(collecte_ts AT TIME ZONE 'UTC'), collecte_ts, count(*) FROM prix_flux GROUP BY 1, 2 ORDER BY 1, 2")
+            prix = cur.fetchall()
+            cur.execute("SELECT collecte_ts, count(*) FROM station_etat_flux GROUP BY 1")
+            etats = dict(cur.fetchall())
+    finally:
+        conn.close()
+    print("## M8 volumétrie du tampon Postgres (table, lignes, octets avec index, octets table seule, octets par ligne)")
+    for table, (n, total, seule) in tailles.items():
+        print(f"  {table:20s} {n:8d}  {total:10d}  {seule:10d}  {total / n:7.0f}" if n else f"  {table:20s} 0")
+    par_jour = collections.defaultdict(int)
+    for jour, ts, n in prix:
+        if ts not in ecartes:
+            par_jour[jour] += n
+    print("  prix insérés par jour UTC, lots écartés exclus (jours incomplets : 30/10 arrêt à 15:45, 05/11 en cours ; jours sans collecte absents)")
+    for jour in sorted(par_jour):
+        print(f"    {jour}  {par_jour[jour]:6d}")
+    par_passage = collections.defaultdict(int)
+    for _jour, ts, n in prix:
+        if ts not in ecartes:
+            par_passage[ts] += n
+    octets_prix = tailles["prix_flux"][1] / tailles["prix_flux"][0]
+    octets_etat = tailles["station_etat_flux"][1] / tailles["station_etat_flux"][0]
+    versions = [n for ts, n in etats.items() if ts not in ecartes and ts != min(etats)]
+    print("  aucun jour n'est complet dans l'historique (collecte du 23/10 au 29/10 et du 30/10 au 05/11 interrompue) : extrapolation PAR PASSAGE x 96 passages par jour")
+    if par_passage:
+        lignes = statistics.median(par_passage.values())
+        print(f"  prix : médiane {lignes} lignes/passage hors rattrapage (n={len(par_passage)} passages avec insertion) = {lignes * 96:.0f} lignes/jour = {lignes * 96 * octets_prix / 1e6:.2f} Mo/jour ({octets_prix:.0f} octets par ligne avec index), {lignes * 96 * octets_prix * 90 / 1e6:.0f} Mo pour 90 jours")
+    if versions:
+        mediane = statistics.median(versions)
+        print(f"  états : médiane {mediane} versions/passage ayant au moins une version (n={len(versions)}) = {mediane * 96:.0f} versions/jour = {mediane * 96 * octets_etat / 1e6:.2f} Mo/jour ({octets_etat:.0f} octets par version avec index), {mediane * 96 * octets_etat * 90 / 1e6:.0f} Mo pour 90 jours")
+    with requests.get(FLUX_URL_M8, headers=EN_TETES, stream=True, timeout=120) as flux:
+        recus = sum(len(morceau) for morceau in flux.raw.stream(1 << 20, decode_content=False))  # octets sur le réseau, avant décompression
+
+        encodage = flux.headers.get("Content-Encoding")
+    print(f"  téléchargement du flux instantané (1 lecture) : {recus} octets reçus sur le réseau (Content-Encoding={encodage}), JSON décompressé d'environ 29,3 Mo (29 289 015 octets mesurés le 2026-11-05)")
+
+
+MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m5": m5, "m8": m8}
 
 
 def main(argv=None) -> None:
