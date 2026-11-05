@@ -6,6 +6,7 @@ Rejeu, dans le conteneur airflow : python -m ingestion.mesures_carburants m1|m2|
   m3 : code commune (quotidien) et couverture des id de l'instantané
   m4 : historique (quotidien, flux annuel de roulez-eco, en-têtes HTTP seulement)
   m4b : début du flux annuel (au plus 256 Ko lus, le serveur ignore Range) : granularité des enregistrements
+  m4c : unicité du zip jour de roulez-eco (état courant ou journal ?)
   m5 : latence collecte_ts moins maj, AVEC et SANS les lots écartés, minimum, régime d'été et d'hiver
   m8 : volumétrie du tampon (lignes, octets), croissance par jour hors rattrapage, poids d'un téléchargement
 Critère de rattrapage unique : premier passage dont l'écart avec le précédent dépasse 20 minutes.
@@ -14,10 +15,12 @@ from __future__ import annotations
 
 import argparse
 import collections
+import io
 import json
 import re
 import statistics
 import struct
+import zipfile
 import zlib
 from datetime import date, timedelta
 from urllib.parse import urljoin
@@ -320,6 +323,10 @@ def m4b(taille_max: int = 256 * 1024) -> None:
         print(f"  membre {en_tete['nom']}, méthode {en_tete['methode']}, {en_tete['comprimee']} comprimés, {en_tete['decompressee']} décompressés")
         print(f"  extrait : {texte.count('<pdv ')} stations (partielles), {len(prix)} enregistrements prix, maj de {min(p[1] for p in prix)} à {max(p[1] for p in prix)}")
         print(f"  valeur identique à l'enregistrement précédent (même carburant, toutes stations de l'extrait) : {identiques}/{total}")
+        ruptures = re.findall(r"<rupture ([^>]*?)/>", texte)
+        avec_fin = sum(bool(re.search(r'fin="[^"]+"', r)) for r in ruptures)
+        types = collections.Counter(re.findall(r'type="([^"]*)"', " ".join(ruptures)))
+        print(f"  ruptures de l'extrait : {len(ruptures)}, fin renseignée : {avec_fin} ({avec_fin / len(ruptures):.1%}), types {dict(types)}")
 
 
 def latence_minutes(collecte_ts, maj) -> float:
@@ -404,7 +411,26 @@ def m8() -> None:
     print(f"  téléchargement du flux instantané (1 lecture) : {recus} octets reçus sur le réseau (Content-Encoding={encodage}), JSON décompressé d'environ 29,3 Mo (29 289 015 octets mesurés le 2026-11-05)")
 
 
-MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m5": m5, "m8": m8}
+def m4c() -> None:
+    """Unicité du zip quotidien (roulez-eco, environ 1,1 Mo) : un prix par (station, carburant) ou un journal ?"""
+    r = requests.get(ROULEZ + "jour", headers=EN_TETES, timeout=120)
+    r.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(r.content)) as archive:
+        nom = archive.namelist()[0]
+        texte = archive.read(nom).decode("iso-8859-1")
+    couples: dict[tuple[str, str], int] = collections.Counter()
+    maj = []
+    for bloc in texte.split("<pdv ")[1:]:
+        station = re.match(r'id="(\d+)"', bloc).group(1)
+        for carburant, date in re.findall(r'<prix nom="([^"]*)" id="\d" maj="([^"]*)"', bloc):
+            couples[(station, carburant)] += 1
+            maj.append(date)
+    print(f"## M4c zip jour : {len(r.content)} octets, membre {nom}, {texte.count('<pdv ')} stations, {len(maj)} prix, {texte.count('<rupture ')} ruptures")
+    print(f"  couples (station, carburant) distincts : {len(couples)}, avec plus d'un enregistrement : {sum(v > 1 for v in couples.values())}, maximum {max(couples.values())}")
+    print(f"  maj de {min(maj)} à {max(maj)} : {'état courant (un prix par couple)' if max(couples.values()) == 1 else 'journal'}")
+
+
+MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m4c": m4c, "m5": m5, "m8": m8}
 
 
 def main(argv=None) -> None:
