@@ -1,10 +1,18 @@
-.PHONY: up down test test-ingestion collecte-run rehash-etats
+.PHONY: up down pause reprise test test-ingestion collecte-run rehash-etats
 
 up:
 	docker compose up -d --build
 
 down:
 	docker compose down
+
+# Coupure normale : arrête les conteneurs sans les supprimer (métadonnées Airflow et volume conservés).
+pause:
+	docker compose stop
+
+# Relance sans reconstruire ni supprimer, puis verdict (voir scripts/reprise.sh).
+reprise:
+	bash scripts/reprise.sh
 
 test: test-ingestion
 
