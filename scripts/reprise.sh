@@ -35,6 +35,16 @@ psql_collecte "-c \"SELECT (SELECT count(*) FROM prix_flux) AS prix, (SELECT cou
 echo "=== 5 dernieres lignes de passage_flux ==="
 psql_collecte "-c \"SELECT * FROM passage_flux ORDER BY collecte_ts DESC LIMIT 5\""
 
+echo "=== conteneur airflow (mémoire et PIDS) ==="
+stat=$(docker stats --no-stream --format '{{.MemUsage}}|{{.PIDs}}' "$(docker compose ps -q airflow)" 2>/dev/null)
+mem=${stat%%|*}
+pids=${stat##*|}
+gio=$(echo "${mem%% /*}" | awk '/GiB/ {sub(/GiB/,""); print $1+0; exit} /MiB/ {sub(/MiB/,""); print $1/1024; exit} {print 0}')
+echo "mémoire ${mem:-inconnue}, PIDS ${pids:-inconnu}"
+if awk -v g="${gio:-0}" 'BEGIN {exit !(g > 6)}'; then
+  echo "AVERTISSEMENT : le conteneur airflow dépasse 6 Gio (${gio} Gio). Prévenir avant de continuer."
+fi
+
 age=$(psql_collecte "-At -c \"SELECT coalesce(round(extract(epoch FROM now() - max(collecte_ts)) / 60), 99999) FROM passage_flux\"" | tr -d '[:space:]')
 dernier=$(echo "$runs" | sed -n 3p | awk -F'|' '{gsub(/ /,"",$3); print $3}')
 echo "=== verdict ==="
