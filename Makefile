@@ -16,7 +16,9 @@ reprise:
 
 test: test-ingestion
 
+# databricks/ n'est pas monté dans le conteneur : copie du dossier (le SQL du bootstrap) avant les tests.
 test-ingestion:
+	docker compose cp databricks airflow:/opt/airflow/project/
 	docker compose exec -w /opt/airflow/project airflow python -m pytest -q -p no:cacheprovider ingestion quality
 
 collecte-run:
