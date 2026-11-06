@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import time
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -381,3 +382,74 @@ def test_main_controles_enchaine_variables_authentification_entrepot(monkeypatch
     monkeypatch.setenv("DATABRICKS_WAREHOUSE_ID", "entrepot-factice-456")
     assert main(["--controles"]) == 0
     assert capsys.readouterr().out.splitlines() == ["OK variables", "OK authentification", "OK entrepôt prêt"]
+
+
+# --- construction du client : ce que reçoivent Config et WorkspaceClient --------------------------------------------------
+
+
+def installer_faux_sdk(monkeypatch):
+    """Faux modules databricks.sdk et databricks.sdk.core : enregistre les appels, ne contacte rien."""
+    appels = {}
+
+    class Config:
+        def __init__(self, **kwargs):
+            appels["config"] = kwargs
+
+    class WorkspaceClient:
+        def __init__(self, **kwargs):
+            appels["client"] = kwargs
+            self.current_user = SimpleNamespace(me=lambda: appels.setdefault("me", True))
+
+    paquet, sdk, core = types.ModuleType("databricks"), types.ModuleType("databricks.sdk"), types.ModuleType("databricks.sdk.core")
+    sdk.WorkspaceClient, core.Config = WorkspaceClient, Config
+    paquet.sdk, sdk.core = sdk, core
+    for nom, module in (("databricks", paquet), ("databricks.sdk", sdk), ("databricks.sdk.core", core)):
+        monkeypatch.setitem(sys.modules, nom, module)
+    return appels
+
+
+def test_creer_client_passe_les_delais_a_config_et_seulement_config_au_client(monkeypatch):
+    appels = installer_faux_sdk(monkeypatch)
+    bootstrap_databricks.creer_client({**ENV, "DATABRICKS_HOST": ' "https://hote-factice.invalid" '})
+    assert appels["config"] == {"host": "https://hote-factice.invalid", "token": "jeton-factice-123", "http_timeout_seconds": 20, "retry_timeout_seconds": 20}
+    assert list(appels["client"]) == ["config"]  # WorkspaceClient n'accepte pas les délais : ils vivent dans Config
+
+
+def test_le_vrai_sdk_n_accepte_pas_les_delais_sur_le_client_mais_sur_config():
+    pytest.importorskip("databricks.sdk")
+    import inspect
+
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.core import Config
+
+    assert "config" in inspect.signature(WorkspaceClient.__init__).parameters
+    assert not {"http_timeout_seconds", "retry_timeout_seconds"} & set(inspect.signature(WorkspaceClient.__init__).parameters)
+    assert hasattr(Config, "http_timeout_seconds") and hasattr(Config, "retry_timeout_seconds")
+
+
+def test_processus_enfant_d_authentification_utilise_creer_client_et_rend_0_ou_1(monkeypatch, capsys):
+    appels = installer_faux_sdk(monkeypatch)
+    for nom, valeur in ENV.items():
+        monkeypatch.setenv(nom, valeur)
+    assert main(["--auth-enfant"]) == 0 and appels.get("me") is True
+    assert capsys.readouterr().out == ""  # rien d'affiché
+
+    def casse(env):
+        raise RuntimeError("401 jeton-factice-123")
+
+    monkeypatch.setattr(bootstrap_databricks, "creer_client", casse)
+    assert main(["--auth-enfant"]) == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_commande_par_defaut_de_l_authentification_est_le_module_lui_meme(monkeypatch):
+    vu = {}
+
+    def faux_run(commande, **kwargs):
+        vu["commande"], vu["cwd"] = commande, kwargs.get("cwd")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", faux_run)
+    assert controler_authentification(ENV) == "OK authentification"
+    assert vu["commande"][1:] == ["-m", "ingestion.bootstrap_databricks", "--auth-enfant"]
+    assert vu["cwd"] == str(bootstrap_databricks.RACINE)
