@@ -21,6 +21,7 @@ services:
       PYTHONPATH: /opt/airflow/project
       COLLECTE_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/collecte
       LOTS_DIR: /opt/airflow/data/lots
+      AIRFLOW__CORE__PARALLELISM: "2"  # LocalExecutor : un worker de plus par tâche jusqu'à ce plafond, jamais arrêté (32 par défaut)
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./ingestion:/opt/airflow/project/ingestion
