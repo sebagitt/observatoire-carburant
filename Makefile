@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -29,6 +29,21 @@ test-ingestion:
 VENV_PYTHON = .venv/Scripts/python.exe
 test-bootstrap:
 	"$(VENV_PYTHON)" -m pytest -q -p no:cacheprovider ingestion/tests/test_bootstrap_databricks.py
+
+# Bootstrap Databricks, sur l'hôte. Les quatre variables DATABRICKS_* viennent de l'environnement du processus : pour ces deux
+# cibles seulement, make inclut .env et exporte ces quatre noms (le script Python ne lit jamais de fichier).
+#   make bootstrap-controles   variables, authentification, entrepôt prêt (aucune écriture)
+#   make bootstrap             les trois contrôles, puis le SQL deux fois avec SHOW SCHEMAS avant, après le run 1 et le run 2
+ifneq ($(filter bootstrap bootstrap-controles,$(MAKECMDGOALS)),)
+-include .env
+export DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_CATALOG DATABRICKS_WAREHOUSE_ID
+endif
+
+bootstrap-controles:
+	"$(VENV_PYTHON)" -m ingestion.bootstrap_databricks --controles
+
+bootstrap:
+	"$(VENV_PYTHON)" -m ingestion.bootstrap_databricks --executer
 
 collecte-run:
 	docker compose exec airflow airflow dags test collecte_flux
