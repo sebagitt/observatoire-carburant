@@ -1,0 +1,22 @@
+# Dépendances de l'hôte pour le bootstrap Databricks et ses tests (pas celles du conteneur, voir airflow/requirements.txt).
+# Épinglées par pip freeze sous Python 3.14.3 le 2026-11-06.
+# Installation : python -m venv .venv puis .venv/Scripts/pip install -r requirements-databricks.txt
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+colorama==0.4.6
+cryptography==50.0.2
+databricks-sdk==0.162.0
+google-auth==2.62.1
+idna==3.20
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+protobuf==7.36.2
+pyasn1==0.6.5
+pyasn1_modules==0.4.2
+pycparser==3.12
+Pygments==2.21.0
+pytest==8.4.1
+requests==2.34.2
+urllib3==2.8.0
