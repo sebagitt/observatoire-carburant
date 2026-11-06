@@ -46,6 +46,15 @@ if awk -v g="${gio:-0}" 'BEGIN {exit !(g > 6)}'; then
   echo "AVERTISSEMENT : le conteneur airflow dépasse 6 Gio (${gio} Gio). Prévenir avant de continuer."
 fi
 
+echo "=== autres piles compose ==="
+autres=$(docker compose ls 2>/dev/null | awk 'NR > 1 && $1 != "observatoire-carburant" && $2 ~ /^running/ {print $1}' | tr '
+' ' ')
+if [ -n "${autres// /}" ]; then
+  echo "AVERTISSEMENT : une autre pile compose tourne (${autres% }). Elle partage la mémoire de Docker avec cette collecte. Rien n'est arrêté ni modifié."
+else
+  echo "aucune autre pile compose en cours"
+fi
+
 age=$(psql_collecte "-At -c \"SELECT coalesce(round(extract(epoch FROM now() - max(collecte_ts)) / 60), 99999) FROM passage_flux\"" | tr -d '[:space:]')
 dernier=$(echo "$runs" | sed -n 3p | awk -F'|' '{gsub(/ /,"",$3); print $3}')
 echo "=== verdict ==="
