@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-ingestion collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-ingestion test-bootstrap collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -18,10 +18,14 @@ reprise:
 
 test: test-ingestion
 
-# databricks/ n'est pas monté dans le conteneur : copie du dossier (le SQL du bootstrap) avant les tests.
+# Dans le conteneur. Les tests du bootstrap Databricks tournent sur l'hôte (make test-bootstrap) : databricks/ n'est pas monté.
 test-ingestion:
-	docker compose cp databricks airflow:/opt/airflow/project/
-	docker compose exec -w /opt/airflow/project airflow python -m pytest -q -p no:cacheprovider ingestion quality
+	docker compose exec -w /opt/airflow/project airflow python -m pytest -q -p no:cacheprovider --ignore=ingestion/tests/test_bootstrap_databricks.py ingestion quality
+
+# Sur l'hôte, dans le venv .venv (Python 3.14.3) : python -m venv .venv puis .venv/Scripts/pip install -r requirements-databricks.txt
+VENV_PYTHON = .venv/Scripts/python.exe
+test-bootstrap:
+	"$(VENV_PYTHON)" -m pytest -q -p no:cacheprovider ingestion/tests/test_bootstrap_databricks.py
 
 collecte-run:
 	docker compose exec airflow airflow dags test collecte_flux
