@@ -57,6 +57,8 @@ Hausse monotone depuis le restart (environ 20 Mio par minute), 12 workers `Local
 
 ### Règles non négociables
 
+- **`make reprise` ne recrée jamais un conteneur** : `docker compose up -d --no-recreate` (ou `start`), jamais un `up -d` simple après un `pause`. Une recréation perd les métadonnées d'Airflow et remet le DAG en pause. Preuve par les identifiants de conteneur (`docker inspect`) avant et après.
+- **Token Databricks** : valide jusqu'au 2027-06-17 (information de l'utilisateur, non vérifiée par un appel). Ne jamais lire ni afficher `.env`.
 - Réponses, docs et commits en français. Jamais de tirets cadratin. Aucun Co-Authored-By.
 - Commits conventionnels, petits, un sujet par commit, `git add` nominatif, `git diff --cached --stat` avant. Vérifier `git config user.email` = `737222+sebagitt@users.noreply.github.com`.
 - Aucun secret dans le repo ni en sortie. Ne jamais afficher `DATABRICKS_HOST` ni `DATABRICKS_TOKEN`. Ne jamais ouvrir ni toucher `.env`.
@@ -96,6 +98,8 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur. Post
 
 ## 6. Erreurs résolues
 
+- **Recréation involontaire le 2026-11-06 12:20:55 UTC** : un `make reprise` (avec `up -d` simple) lancé depuis PowerShell a détruit puis recréé `postgres` et `airflow`. Données conservées (volume `pg_data`), métadonnées d'Airflow perdues, DAG remis en pause puis réactivé par le script, run de 12:15 rejoué (passage en double à 12:21:19, 0 ligne). Cause non établie (hash de configuration identique dans les deux shells). Correctif : `--no-recreate`.
+- `make reprise` sous PowerShell : `bash` du PATH est le lanceur WSL ; le Makefile utilise le bash de Git for Windows déduit de `git --exec-path`.
 - Garde-fou 30 % déclenché à tort après la reprise du 05/11 : ordre de `services` modifié à la source. Correction : hash canonique et recalcul des hash stockés (13 460 lignes), run suivant en success.
 - Fiche : "aucun champ de fin" était incomplet (`@fin` existe, jamais rempli dans l'instantané, renseigné dans le flux annuel).
 - `grep -P` échoue avec la locale : vérifier les caractères en Python.
