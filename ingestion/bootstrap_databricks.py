@@ -275,6 +275,19 @@ def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dor
         sortie("KO : le run 2 diffère du run 1")
         return 1
     sortie("OK : run 2 identique au run 1")
+    try:
+        reponse = _executer(client, entrepot_id, f"SHOW VOLUMES IN {catalogue}.carburant_bronze", dormir, pause)
+    except ErreurBootstrap as erreur:
+        sortie(f"KO SHOW VOLUMES : {erreur}")
+        return 1
+    except Exception:  # noqa: BLE001 - jamais le message du SDK (hôte, jeton)
+        sortie("KO : erreur du SDK pendant la lecture des Volumes")
+        return 1
+    lignes = (reponse.result.data_array if reponse.result is not None else None) or []
+    if not any("depot" in [str(cellule).lower() for cellule in ligne] for ligne in lignes):
+        sortie("KO : Volume carburant_bronze.depot absent")
+        return 1
+    sortie("OK : Volume carburant_bronze.depot présent")
     return 0
 
 
