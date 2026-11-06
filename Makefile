@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-ingestion test-bootstrap collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -16,7 +16,10 @@ GIT_BASH = "$(shell git --exec-path)/../../../bin/bash.exe"
 reprise:
 	$(GIT_BASH) scripts/reprise.sh
 
+# make test : tests du conteneur. make test-tout : conteneur et hôte (bootstrap Databricks) = critère vert de J3.
 test: test-ingestion
+
+test-tout: test-ingestion test-bootstrap
 
 # Dans le conteneur. Les tests du bootstrap Databricks tournent sur l'hôte (make test-bootstrap) : databricks/ n'est pas monté.
 test-ingestion:
