@@ -11,8 +11,10 @@ pause:
 	docker compose stop
 
 # Relance sans reconstruire ni supprimer, puis verdict (voir scripts/reprise.sh).
+# Le bash de Git for Windows est déduit de git : depuis PowerShell, "bash" du PATH est le lanceur WSL.
+GIT_BASH = "$(shell git --exec-path)/../../../bin/bash.exe"
 reprise:
-	bash scripts/reprise.sh
+	$(GIT_BASH) scripts/reprise.sh
 
 test: test-ingestion
 
