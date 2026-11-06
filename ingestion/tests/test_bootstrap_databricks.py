@@ -1,17 +1,26 @@
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from ingestion import bootstrap_databricks
 from ingestion.bootstrap_databricks import (
     DELAI_CONNEXION,
+    MAX_TENTATIVES,
     SCHEMAS_AUTORISES,
+    catalogue_valide,
+    controler_authentification,
+    controler_entrepot,
+    controler_variables,
+    lancer_bootstrap,
     lire_instructions,
+    lire_variables,
     main,
+    qualifier,
     sans_secret,
-    controler_connexion,
+    variables_manquantes,
     verifier_perimetre,
 )
 
@@ -64,52 +73,311 @@ def test_aucun_secret_en_sortie():
     assert sans_secret("rien", {}) == "rien"
 
 
-ENV = {"DATABRICKS_HOST": "https://hote-factice.invalid", "DATABRICKS_TOKEN": "jeton-factice-123"}
+ENV = {
+    "DATABRICKS_HOST": "https://hote-factice.invalid",
+    "DATABRICKS_TOKEN": "jeton-factice-123",
+    "DATABRICKS_CATALOG": "workspace",
+    "DATABRICKS_WAREHOUSE_ID": "entrepot-factice-456",
+}
+SECRETS = ("hote-factice", "jeton-factice-123", "entrepot-factice-456")
+EXISTANTS = ["bronze", "silver", "gold", "ci_silver", "ci_gold", "default", "information_schema"]
+NOUVEAUX = ["carburant_bronze", "carburant_silver", "carburant_gold"]
 
 
 def enfant(code):
     return [sys.executable, "-c", code]
 
 
+# --- contrôle 1 : variables -----------------------------------------------------------------------------------
+
+
+def test_variables_completes_ok():
+    assert controler_variables(ENV) == "OK variables"
+
+
+def test_variable_manquante_nommee_sans_valeur():
+    sans_jeton = {k: v for k, v in ENV.items() if k != "DATABRICKS_TOKEN"}
+    assert controler_variables(sans_jeton) == "KO variable manquante : DATABRICKS_TOKEN"
+    assert variables_manquantes({}) == ["DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_CATALOG", "DATABRICKS_WAREHOUSE_ID"]
+    assert controler_variables({**ENV, "DATABRICKS_WAREHOUSE_ID": "   "}) == "KO variable manquante : DATABRICKS_WAREHOUSE_ID"
+    for secret in SECRETS:
+        assert secret not in controler_variables({"DATABRICKS_HOST": ENV["DATABRICKS_HOST"]})
+
+
+def test_lire_variables_retire_espaces_et_guillemets():
+    lues = lire_variables({"DATABRICKS_HOST": ' "https://x" ', "DATABRICKS_TOKEN": "'abc'", "AUTRE": "ignoré"})
+    assert lues == {"DATABRICKS_HOST": "https://x", "DATABRICKS_TOKEN": "abc"}
+
+
+@pytest.mark.parametrize("nom,attendu", [("workspace", True), ("main_2", True), ("a;DROP", False), ("w s", False), ("", False), ("1abc", False), ("a.b", False)])
+def test_catalogue_valide_par_regex(nom, attendu):
+    assert catalogue_valide(nom) is attendu
+
+
+def test_catalogue_invalide_donne_ko_sans_afficher_la_valeur():
+    assert controler_variables({**ENV, "DATABRICKS_CATALOG": "workspace; DROP"}) == "KO catalogue invalide"
+
+
+# --- contrôle 2 : authentification (processus enfant, délai dur) ---------------------------------------------------
+
+
 def test_delai_dur_par_defaut_de_30_secondes():
     assert DELAI_CONNEXION == 30
 
 
-def test_ko_sans_rien_lancer_si_une_variable_manque(monkeypatch):
+def test_authentification_ko_sans_rien_lancer_si_une_variable_manque(monkeypatch):
     def interdit(*args, **kwargs):
         raise AssertionError("aucun processus ne doit être lancé")
 
     monkeypatch.setattr(subprocess, "run", interdit)
-    assert controler_connexion({"DATABRICKS_HOST": "https://x"}) == "KO"
-    assert controler_connexion({}) == "KO"
+    assert controler_authentification({"DATABRICKS_HOST": "https://x"}) == "KO variable manquante : DATABRICKS_TOKEN"
 
 
-def test_ok_si_le_processus_enfant_reussit():
-    assert controler_connexion(ENV, commande=enfant("raise SystemExit(0)")) == "OK"
+def test_authentification_ok_si_le_processus_enfant_reussit():
+    assert controler_authentification(ENV, commande=enfant("raise SystemExit(0)")) == "OK authentification"
 
 
-def test_ko_si_le_processus_enfant_echoue():
-    assert controler_connexion(ENV, commande=enfant("raise SystemExit(3)")) == "KO"
+def test_authentification_ko_si_le_processus_enfant_echoue():
+    assert controler_authentification(ENV, commande=enfant("raise SystemExit(3)")) == "KO authentification"
 
 
 def test_delai_dur_tue_un_processus_enfant_bloque():
     debut = time.monotonic()
-    assert controler_connexion(ENV, commande=enfant("import time; time.sleep(60)"), delai=1) == "KO"
+    assert controler_authentification(ENV, commande=enfant("import time; time.sleep(60)"), delai=1) == "KO authentification"
     assert time.monotonic() - debut < 10  # sans délai dur, ce test durerait 60 s
 
 
-def test_aucun_secret_ni_sortie_de_l_enfant(capfd):
+def test_authentification_aucun_secret_ni_sortie_de_l_enfant(capfd):
     code = "import os, sys; v = os.environ['DATABRICKS_TOKEN']; print(v); print(v, file=sys.stderr); raise SystemExit(1)"
-    resultat = controler_connexion(ENV, commande=enfant(code))
+    resultat = controler_authentification(ENV, commande=enfant(code))
     sorties = capfd.readouterr()
-    assert resultat == "KO"
+    assert resultat == "KO authentification"
     assert sorties.out == "" and sorties.err == ""
 
 
-def test_main_n_affiche_que_ok_ou_ko(monkeypatch, capsys):
-    monkeypatch.setattr(bootstrap_databricks, "controler_connexion", lambda env: "OK")
-    main(["--connexion"])
-    assert capsys.readouterr().out == "OK\n"
-    monkeypatch.setattr(bootstrap_databricks, "controler_connexion", lambda env: "KO")
-    main(["--connexion"])
-    assert capsys.readouterr().out == "KO\n"
+# --- faux SDK ------------------------------------------------------------------------------------------------------
+
+
+def reponse(etat, lignes=None, identifiant="id-1"):
+    resultat = SimpleNamespace(data_array=lignes) if lignes is not None else None
+    return SimpleNamespace(statement_id=identifiant, status=SimpleNamespace(state=SimpleNamespace(value=etat)), result=resultat)
+
+
+class FauxStatements:
+    """Faux client.statement_execution : un catalogue en mémoire, des états programmables, aucune connexion."""
+
+    def __init__(self, schemas=EXISTANTS, etats_select=("SUCCEEDED",), echec_a=None, retirer=None):
+        self.schemas = set(schemas)
+        self.etats_select = list(etats_select)
+        self.appels = []  # (statement, warehouse_id, wait_timeout)
+        self.interrogations = 0
+        self.echec_a = echec_a  # rang (1, 2...) de l'instruction CREATE qui échoue
+        self.retirer = retirer  # schéma que la 1re instruction fait disparaître (simule un effet de bord)
+        self.creates = 0
+        self.volumes = set()
+        self.journal_sortie = None
+        self.instructions_affichees_avant = []
+
+    def execute_statement(self, statement, warehouse_id, wait_timeout=None, **kwargs):
+        self.appels.append((statement, warehouse_id, wait_timeout))
+        if statement.startswith("SELECT 1"):
+            return reponse(self.etats_select.pop(0) if self.etats_select else "SUCCEEDED")
+        if statement.startswith("SHOW SCHEMAS IN "):
+            return reponse("SUCCEEDED", [[s] for s in sorted(self.schemas)])
+        if statement.startswith("CREATE "):
+            self.creates += 1
+            if self.journal_sortie is not None and self.creates == 1:
+                self.instructions_affichees_avant = list(self.journal_sortie)
+            if self.echec_a == self.creates:
+                return reponse("FAILED")
+            nom = statement.rsplit(" ", 1)[1]
+            if statement.startswith("CREATE SCHEMA"):
+                self.schemas.add(nom.split(".")[1])
+            else:
+                self.volumes.add(nom)
+            if self.retirer:
+                self.schemas.discard(self.retirer)
+            return reponse("SUCCEEDED")
+        raise AssertionError(f"instruction inattendue : {statement}")
+
+    def get_statement(self, statement_id):
+        self.interrogations += 1
+        return reponse(self.etats_select.pop(0) if self.etats_select else "SUCCEEDED")
+
+
+def faux_client(**kwargs):
+    se = FauxStatements(**kwargs)
+    return SimpleNamespace(statement_execution=se), se
+
+
+# --- contrôle 3 : entrepôt prêt (SELECT 1, scrutation bornée) ---------------------------------------------------------
+
+
+def test_entrepot_pret_du_premier_coup():
+    client, se = faux_client(etats_select=["SUCCEEDED"])
+    pauses = []
+    assert controler_entrepot(client, ENV["DATABRICKS_WAREHOUSE_ID"], dormir=pauses.append) == "OK entrepôt prêt"
+    assert se.appels[0][0] == "SELECT 1" and len(se.appels) == 1 and pauses == []
+
+
+def test_entrepot_a_froid_pending_puis_pret_scrute_sans_redemarrer():
+    client, se = faux_client(etats_select=["PENDING", "PENDING", "RUNNING", "SUCCEEDED"])
+    pauses = []
+    assert controler_entrepot(client, ENV["DATABRICKS_WAREHOUSE_ID"], dormir=pauses.append, pause=7) == "OK entrepôt prêt"
+    assert len(se.appels) == 1  # une seule soumission : jamais de redémarrage ni de nouvelle requête
+    assert se.interrogations == 3 and pauses == [7, 7, 7]
+
+
+def test_entrepot_jamais_plus_de_5_tentatives():
+    client, se = faux_client(etats_select=["PENDING"] * 20)
+    pauses = []
+    assert controler_entrepot(client, ENV["DATABRICKS_WAREHOUSE_ID"], dormir=pauses.append) == "KO entrepôt (délai dépassé)"
+    assert MAX_TENTATIVES == 5 and se.interrogations == 5 and len(pauses) == 5 and len(se.appels) == 1
+
+
+@pytest.mark.parametrize("etat", ["FAILED", "CANCELED", "CLOSED"])
+def test_entrepot_ko_immediat_si_la_requete_echoue(etat):
+    client, se = faux_client(etats_select=[etat])
+    assert controler_entrepot(client, ENV["DATABRICKS_WAREHOUSE_ID"], dormir=lambda s: None) == "KO entrepôt (échec)"
+    assert se.interrogations == 0
+
+
+def test_entrepot_ko_distinct_de_l_authentification_et_sans_secret_si_le_sdk_leve():
+    class Casse:
+        def execute_statement(self, *args, **kwargs):
+            raise RuntimeError("401 https://hote-factice.invalid jeton-factice-123 entrepot-factice-456")
+
+    resultat = controler_entrepot(SimpleNamespace(statement_execution=Casse()), ENV["DATABRICKS_WAREHOUSE_ID"], dormir=lambda s: None)
+    assert resultat == "KO entrepôt (erreur)" != "KO authentification"
+    assert not any(secret in resultat for secret in SECRETS)
+
+
+# --- noms qualifiés et périmètre --------------------------------------------------------------------------------------
+
+QUALIFIEES = [
+    "CREATE SCHEMA IF NOT EXISTS workspace.carburant_bronze",
+    "CREATE SCHEMA IF NOT EXISTS workspace.carburant_silver",
+    "CREATE SCHEMA IF NOT EXISTS workspace.carburant_gold",
+    "CREATE VOLUME IF NOT EXISTS workspace.carburant_bronze.depot",
+]
+
+
+def test_qualifier_donne_les_noms_catalogue_schema_exacts():
+    assert qualifier(lire_instructions(), "workspace") == QUALIFIEES
+
+
+def test_perimetre_sur_noms_qualifies_accepte_le_bon_catalogue():
+    cree = verifier_perimetre(QUALIFIEES, "workspace")
+    assert sorted(cree["schemas"]) == sorted(SCHEMAS_AUTORISES) and cree["volumes"] == ["carburant_bronze.depot"]
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "CREATE SCHEMA IF NOT EXISTS autre.carburant_bronze",  # mauvais catalogue
+        "CREATE SCHEMA IF NOT EXISTS carburant_bronze",  # non qualifié alors qu'un catalogue est imposé
+        "CREATE SCHEMA IF NOT EXISTS workspace.bronze",  # schéma de l'autre projet
+        "CREATE SCHEMA IF NOT EXISTS workspace.ci_silver",
+        "CREATE SCHEMA IF NOT EXISTS workspace.default",
+        "CREATE VOLUME IF NOT EXISTS workspace.silver.depot",
+        "CREATE SCHEMA IF NOT EXISTS workspace.carburant_bronze; DROP SCHEMA workspace.bronze",
+        "DROP SCHEMA IF EXISTS workspace.carburant_bronze",
+        "CREATE CATALOG IF NOT EXISTS workspace",
+    ],
+)
+def test_perimetre_qualifie_refuse_tout_le_reste(instruction):
+    with pytest.raises(ValueError):
+        verifier_perimetre([instruction], "workspace")
+
+
+def test_qualifier_refuse_un_catalogue_invalide():
+    with pytest.raises(ValueError):
+        qualifier(lire_instructions(), "workspace; DROP")
+
+
+# --- exécution : deux passages, SHOW SCHEMAS avant, après 1, après 2 -----------------------------------------------------
+
+
+def lancer(client):
+    sorties = []
+    code = lancer_bootstrap(client, ENV["DATABRICKS_WAREHOUSE_ID"], "workspace", sortie=sorties.append, dormir=lambda s: None)
+    return code, sorties
+
+
+def test_deux_passages_trois_schemas_nouveaux_et_run_2_identique():
+    client, se = faux_client()
+    code, sorties = lancer(client)
+    assert code == 0
+    assert [a[0] for a in se.appels if a[0].startswith("SHOW SCHEMAS")] == ["SHOW SCHEMAS IN workspace"] * 3
+    assert [a[0] for a in se.appels if a[0].startswith("CREATE")] == QUALIFIEES * 2
+    texte = "\n".join(sorties)
+    assert "OK : 3 schémas créés" in texte and "run 2 identique au run 1" in texte
+    assert se.schemas == set(EXISTANTS) | set(NOUVEAUX) and se.volumes == {"workspace.carburant_bronze.depot"}
+
+
+def test_les_instructions_exactes_sont_affichees_avant_le_premier_appel_d_ecriture():
+    client, se = faux_client()
+    sorties = []
+    se.journal_sortie = sorties
+    lancer_bootstrap(client, ENV["DATABRICKS_WAREHOUSE_ID"], "workspace", sortie=sorties.append, dormir=lambda s: None)
+    avant = "\n".join(se.instructions_affichees_avant)
+    for instruction in QUALIFIEES:
+        assert instruction in avant
+
+
+def test_arret_a_la_premiere_erreur_sans_second_passage():
+    client, se = faux_client(echec_a=2)
+    code, sorties = lancer(client)
+    assert code == 1
+    assert se.creates == 2  # la 3e instruction et le run 2 ne partent pas
+    texte = "\n".join(sorties)
+    assert "KO instruction 2" in texte and "carburant_silver" in texte
+    assert [a[0] for a in se.appels].count("SHOW SCHEMAS IN workspace") == 1
+
+
+def test_ko_si_un_schema_existant_disparait():
+    client, se = faux_client(retirer="ci_gold")
+    code, sorties = lancer(client)
+    assert code == 1 and "KO : schémas existants modifiés" in "\n".join(sorties)
+
+
+def test_instruction_pending_scrutee_au_plus_5_fois():
+    client, se = faux_client()
+    original = se.execute_statement
+
+    def lent(statement, warehouse_id, wait_timeout=None, **kwargs):
+        r = original(statement, warehouse_id, wait_timeout=wait_timeout, **kwargs)
+        if statement.endswith("workspace.carburant_bronze") and se.creates == 1:
+            se.etats_select[:] = ["PENDING"] * 20
+            return reponse("PENDING")
+        return r
+
+    se.execute_statement = lent
+    code, sorties = lancer(client)
+    assert code == 1 and se.interrogations == 5 and "KO instruction 1" in "\n".join(sorties)
+
+
+def test_aucun_secret_dans_les_sorties_du_bootstrap():
+    client, se = faux_client()
+    code, sorties = lancer(client)
+    assert code == 0 and not any(secret in ligne for ligne in sorties for secret in SECRETS)
+
+
+# --- main ------------------------------------------------------------------------------------------------------------
+
+
+def test_main_controles_s_arrete_au_premier_ko(monkeypatch, capsys):
+    appels = []
+    monkeypatch.setattr(bootstrap_databricks, "controler_variables", lambda env: appels.append("v") or "KO variable manquante : DATABRICKS_TOKEN")
+    monkeypatch.setattr(bootstrap_databricks, "controler_authentification", lambda env: appels.append("a") or "OK authentification")
+    assert main(["--controles"]) == 1
+    assert appels == ["v"] and capsys.readouterr().out == "KO variable manquante : DATABRICKS_TOKEN\n"
+
+
+def test_main_controles_enchaine_variables_authentification_entrepot(monkeypatch, capsys):
+    monkeypatch.setattr(bootstrap_databricks, "controler_variables", lambda env: "OK variables")
+    monkeypatch.setattr(bootstrap_databricks, "controler_authentification", lambda env: "OK authentification")
+    monkeypatch.setattr(bootstrap_databricks, "creer_client", lambda env: SimpleNamespace(statement_execution=FauxStatements()))
+    monkeypatch.setenv("DATABRICKS_WAREHOUSE_ID", "entrepot-factice-456")
+    assert main(["--controles"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["OK variables", "OK authentification", "OK entrepôt prêt"]
