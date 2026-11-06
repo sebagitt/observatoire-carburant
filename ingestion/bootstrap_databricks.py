@@ -33,12 +33,10 @@ PAUSE_ENTREPOT = 60  # secondes entre deux interrogations de l'entrepôt (5 x 60
 PAUSE_REQUETE = 10
 ATTENTE_REQUETE = "50s"  # attente maximale autorisée par l'API avant de rendre la main
 ETATS_ECHEC = ("FAILED", "CANCELED", "CLOSED")
-# Exécuté dans un processus enfant : le SDK peut se bloquer (hôte injoignable), seul un processus se tue de façon fiable.
-CODE_VERIFICATION = (
-    "import os; from databricks.sdk import WorkspaceClient; "
-    "WorkspaceClient(host=os.environ['DATABRICKS_HOST'], token=os.environ['DATABRICKS_TOKEN'], "
-    "http_timeout_seconds=20, retry_timeout_seconds=20).current_user.me()"
-)
+RACINE = Path(__file__).resolve().parents[1]
+# Le contrôle d'authentification tourne dans un processus enfant (ce module avec --auth-enfant) : le SDK peut se bloquer
+# (hôte injoignable), seul un processus se tue de façon fiable. Le client est construit à un seul endroit : creer_client.
+COMMANDE_AUTHENTIFICATION = [sys.executable, "-m", "ingestion.bootstrap_databricks", "--auth-enfant"]
 
 _CATALOGUE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,62}")
 _SCHEMA_SIMPLE = re.compile(r"CREATE SCHEMA IF NOT EXISTS (\w+)", re.IGNORECASE)
@@ -154,7 +152,8 @@ def controler_authentification(environnement, commande: list[str] | None = None,
         return "KO variable manquante : " + ", ".join(manquantes)
     try:
         fini = subprocess.run(
-            commande or [sys.executable, "-c", CODE_VERIFICATION],
+            commande or COMMANDE_AUTHENTIFICATION,
+            cwd=str(RACINE),
             env={**environnement, **lire_variables(environnement)},
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -170,9 +169,12 @@ def controler_authentification(environnement, commande: list[str] | None = None,
 def creer_client(environnement):
     """Client du SDK avec des délais courts (aucune relance longue). Non testé hors connexion : aucun appel réseau ici."""
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.core import Config
 
     v = lire_variables(environnement)
-    return WorkspaceClient(host=v["DATABRICKS_HOST"], token=v["DATABRICKS_TOKEN"], http_timeout_seconds=20, retry_timeout_seconds=20)
+    # Les délais sont des attributs de Config : WorkspaceClient ne les accepte pas en paramètres directs.
+    config = Config(host=v["DATABRICKS_HOST"], token=v["DATABRICKS_TOKEN"], http_timeout_seconds=20, retry_timeout_seconds=20)
+    return WorkspaceClient(config=config)
 
 
 def _etat(reponse) -> str:
@@ -283,7 +285,14 @@ def main(argv: list[str] | None = None) -> int:
     parseur = argparse.ArgumentParser(description="Contrôles et bootstrap Databricks (variables lues dans l'environnement).")
     parseur.add_argument("--controles", action="store_true", help="variables, authentification, entrepôt prêt")
     parseur.add_argument("--executer", action="store_true", help="les trois contrôles, puis le bootstrap (deux passages)")
+    parseur.add_argument("--auth-enfant", action="store_true", help="interne : une authentification, code retour 0 ou 1, rien d'affiché")
     arguments = parseur.parse_args(argv)
+    if arguments.auth_enfant:
+        try:
+            creer_client(dict(os.environ)).current_user.me()
+        except Exception:  # noqa: BLE001 - rien ne sort : ni message, ni hôte, ni jeton
+            return 1
+        return 0
     if not (arguments.controles or arguments.executer):
         parseur.print_usage()
         return 2
