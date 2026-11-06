@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Relance la collecte (après make pause ou un arrêt de Docker) et rend un verdict.
-# Ne supprime jamais rien : docker compose up -d, sans -v ni --build.
+# Ne supprime ni ne recrée rien : docker compose up -d --no-recreate, sans -v ni --build.
+# Jamais un up -d simple après un pause : il recrée un conteneur dont la configuration a changé (métadonnées d'Airflow perdues).
 set -u
 export MSYS_NO_PATHCONV=1
 AIRFLOW="docker compose exec -T airflow airflow"
@@ -9,7 +10,7 @@ psql_collecte() {
   docker compose exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d collecte $1"
 }
 
-docker compose up -d
+docker compose up -d --no-recreate
 
 echo "=== attente d'Airflow (120 s max) ==="
 for _ in $(seq 1 40); do
@@ -48,9 +49,11 @@ fi
 age=$(psql_collecte "-At -c \"SELECT coalesce(round(extract(epoch FROM now() - max(collecte_ts)) / 60), 99999) FROM passage_flux\"" | tr -d '[:space:]')
 dernier=$(echo "$runs" | sed -n 3p | awk -F'|' '{gsub(/ /,"",$3); print $3}')
 echo "=== verdict ==="
-if [ "${pause:-}" != "False" ]; then
+if [ -z "$age" ]; then
+  echo "KO : base injoignable (le dernier passage n'a pas pu être lu)."
+elif [ "${pause:-}" != "False" ]; then
   echo "KO : le DAG est en pause ou son état est inconnu (is_paused=${pause:-inconnu})."
-elif [ "${age:-99999}" -gt 20 ]; then
+elif [ "$age" -gt 20 ]; then
   echo "EN ATTENTE : dernier passage il y a ${age} min. Le prochain quart d'heure doit apparaître : relancer make reprise ensuite."
 elif [ "$dernier" = "success" ]; then
   echo "OK : collecte à jour (dernier passage il y a ${age} min, dernier run en success)."
