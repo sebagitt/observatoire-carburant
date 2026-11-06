@@ -167,7 +167,8 @@ def reponse(etat, lignes=None, identifiant="id-1"):
 class FauxStatements:
     """Faux client.statement_execution : un catalogue en mémoire, des états programmables, aucune connexion."""
 
-    def __init__(self, schemas=EXISTANTS, etats_select=("SUCCEEDED",), echec_a=None, retirer=None):
+    def __init__(self, schemas=EXISTANTS, etats_select=("SUCCEEDED",), echec_a=None, retirer=None, sans_volume=False):
+        self.sans_volume = sans_volume  # le CREATE VOLUME réussit mais le volume n'existe pas ensuite (simule un défaut)
         self.schemas = set(schemas)
         self.etats_select = list(etats_select)
         self.appels = []  # (statement, warehouse_id, wait_timeout)
@@ -183,6 +184,9 @@ class FauxStatements:
         self.appels.append((statement, warehouse_id, wait_timeout))
         if statement.startswith("SELECT 1"):
             return reponse(self.etats_select.pop(0) if self.etats_select else "SUCCEEDED")
+        if statement.startswith("SHOW VOLUMES IN "):
+            lignes = [["carburant_bronze", v.rsplit(".", 1)[1]] for v in sorted(self.volumes)] if not self.sans_volume else []
+            return reponse("SUCCEEDED", lignes)
         if statement.startswith("SHOW SCHEMAS IN "):
             return reponse("SUCCEEDED", [[s] for s in sorted(self.schemas)])
         if statement.startswith("CREATE "):
@@ -453,3 +457,17 @@ def test_commande_par_defaut_de_l_authentification_est_le_module_lui_meme(monkey
     assert controler_authentification(ENV) == "OK authentification"
     assert vu["commande"][1:] == ["-m", "ingestion.bootstrap_databricks", "--auth-enfant"]
     assert vu["cwd"] == str(bootstrap_databricks.RACINE)
+
+
+def test_le_volume_depot_est_verifie_a_la_fin_et_nomme_dans_les_sorties():
+    client, se = faux_client()
+    code, sorties = lancer(client)
+    assert code == 0
+    assert [a[0] for a in se.appels if a[0].startswith("SHOW VOLUMES")] == ["SHOW VOLUMES IN workspace.carburant_bronze"]
+    assert "OK : Volume carburant_bronze.depot présent" in "\n".join(sorties)
+
+
+def test_ko_si_le_volume_n_existe_pas_apres_le_bootstrap():
+    client, se = faux_client(sans_volume=True)
+    code, sorties = lancer(client)
+    assert code == 1 and "KO : Volume carburant_bronze.depot absent" in "\n".join(sorties)
