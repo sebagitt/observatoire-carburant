@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-cog collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -55,6 +55,11 @@ collecte-run:
 #   make rehash-etats ARGS=--confirmer  écrit le recalcul
 rehash-etats:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.rehash $(ARGS)
+
+# Référentiel COG 2026 : télécharge les 3 CSV de l'INSEE dans data/referentiels/cog/2026, valide (GX) puis charge ref_cog_*
+# dans la base collecte (une transaction, rejouable sans effet). Dans le conteneur airflow.
+charger-cog:
+	docker compose exec -w /opt/airflow/project airflow python -m ingestion.referentiels cog --telecharger
 
 # Mesures de la fiche carburants, dans le conteneur : make mesure-carburants M=m1 (m1 à m5, m8, avec m4b et m4c)
 mesure-carburants:
