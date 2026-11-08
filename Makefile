@@ -37,6 +37,8 @@ test-bootstrap:
 ifneq ($(filter bootstrap bootstrap-controles,$(MAKECMDGOALS)),)
 -include .env
 export DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_CATALOG DATABRICKS_WAREHOUSE_ID
+# Sortie en UTF-8 (sinon Python sous Windows écrit en cp1252 et les accents s'affichent mal dans un terminal ou un tube UTF-8).
+export PYTHONUTF8 := 1
 endif
 
 bootstrap-controles:
