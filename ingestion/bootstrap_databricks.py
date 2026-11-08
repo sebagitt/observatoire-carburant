@@ -225,10 +225,23 @@ def _executer(client, entrepot_id: str, instruction: str, dormir, pause: float):
     return reponse
 
 
+def extraire_colonne(reponse, nom_colonne: str, defaut: int = -1) -> list[str]:
+    """Valeurs triées d'une colonne du résultat, choisie par son nom dans le manifeste, sinon par l'indice `defaut`."""
+    lignes = (reponse.result.data_array if reponse.result is not None else None) or []
+    schema = getattr(getattr(reponse, "manifest", None), "schema", None)
+    colonnes = [colonne.name for colonne in getattr(schema, "columns", None) or []]
+    indice = colonnes.index(nom_colonne) if nom_colonne in colonnes else defaut
+    return sorted(str(ligne[indice]) for ligne in lignes)
+
+
 def lister_schemas(client, entrepot_id: str, catalogue: str, dormir, pause: float = PAUSE_REQUETE) -> list[str]:
     reponse = _executer(client, entrepot_id, f"SHOW SCHEMAS IN {catalogue}", dormir, pause)
-    lignes = (reponse.result.data_array if reponse.result is not None else None) or []
-    return sorted(str(ligne[0]) for ligne in lignes)
+    return extraire_colonne(reponse, "databaseName", defaut=0)
+
+
+def lister_volumes(client, entrepot_id: str, catalogue: str, dormir, pause: float = PAUSE_REQUETE) -> list[str]:
+    reponse = _executer(client, entrepot_id, f"SHOW VOLUMES IN {catalogue}.carburant_bronze", dormir, pause)
+    return extraire_colonne(reponse, "volume_name")
 
 
 def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dormir=time.sleep, pause: float = PAUSE_REQUETE) -> int:
@@ -246,7 +259,13 @@ def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dor
     try:
         avant = lister_schemas(client, entrepot_id, catalogue, dormir, pause)
         sortie(f"Schémas avant : {', '.join(avant)}")
+        if "carburant_bronze" in avant:
+            volumes_avant = lister_volumes(client, entrepot_id, catalogue, dormir, pause)
+            sortie(f"Volumes avant : {', '.join(volumes_avant) or '(aucun)'}")
+        else:
+            sortie("Volumes avant : (schéma carburant_bronze absent)")
         apres: list[list[str]] = []
+        volumes: list[list[str]] = []
         for passage in (1, 2):
             for rang, instruction in enumerate(instructions, 1):
                 try:
@@ -256,6 +275,8 @@ def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dor
                     return 1
             apres.append(lister_schemas(client, entrepot_id, catalogue, dormir, pause))
             sortie(f"Schémas après le run {passage} : {', '.join(apres[-1])}")
+            volumes.append(lister_volumes(client, entrepot_id, catalogue, dormir, pause))
+            sortie(f"Volumes après le run {passage} : {', '.join(volumes[-1]) or '(aucun)'}")
             if passage == 1:
                 if set(avant) - set(apres[0]):
                     sortie("KO : schémas existants modifiés (certains ont disparu)")
@@ -266,7 +287,7 @@ def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dor
                     return 1
                 sortie(f"OK : {len(crees)} schémas créés ({', '.join(crees) or 'déjà présents'}), les {len(avant)} existants inchangés")
     except ErreurBootstrap as erreur:
-        sortie(f"KO SHOW SCHEMAS : {erreur}")
+        sortie(f"KO lecture du catalogue : {erreur}")
         return 1
     except Exception:  # noqa: BLE001 - jamais le message du SDK (hôte, jeton)
         sortie("KO : erreur du SDK pendant le bootstrap")
@@ -275,16 +296,10 @@ def lancer_bootstrap(client, entrepot_id: str, catalogue: str, sortie=print, dor
         sortie("KO : le run 2 diffère du run 1")
         return 1
     sortie("OK : run 2 identique au run 1")
-    try:
-        reponse = _executer(client, entrepot_id, f"SHOW VOLUMES IN {catalogue}.carburant_bronze", dormir, pause)
-    except ErreurBootstrap as erreur:
-        sortie(f"KO SHOW VOLUMES : {erreur}")
+    if volumes[1] != volumes[0]:
+        sortie("KO : les Volumes du run 2 diffèrent de ceux du run 1")
         return 1
-    except Exception:  # noqa: BLE001 - jamais le message du SDK (hôte, jeton)
-        sortie("KO : erreur du SDK pendant la lecture des Volumes")
-        return 1
-    lignes = (reponse.result.data_array if reponse.result is not None else None) or []
-    if not any("depot" in [str(cellule).lower() for cellule in ligne] for ligne in lignes):
+    if "depot" not in volumes[1]:
         sortie("KO : Volume carburant_bronze.depot absent")
         return 1
     sortie("OK : Volume carburant_bronze.depot présent")
