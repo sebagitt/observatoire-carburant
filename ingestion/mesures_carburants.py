@@ -9,6 +9,7 @@ Rejeu, dans le conteneur airflow : python -m ingestion.mesures_carburants m1|m2|
   m4c : unicité du zip jour de roulez-eco (état courant ou journal ?)
   m5 : latence collecte_ts moins maj, AVEC et SANS les lots écartés, minimum, régime d'été et d'hiver
   m8 : volumétrie du tampon (lignes, octets), croissance par jour hors rattrapage, poids d'un téléchargement
+  m9 : couverture des com_arm_code du quotidien dans ref_cog_commune (après make charger-cog) : codes sans correspondance, arrondissements
 Critère de rattrapage unique : premier passage dont l'écart avec le précédent dépasse 20 minutes.
 """
 from __future__ import annotations
@@ -227,8 +228,46 @@ def m2() -> None:
     print("  Lots écartés pour les états, versions écrites :", [(str(ts)[5:19], n) for ts, n in versions if ts in ecartes_etats])
 
 
+def couverture_codes(codes, types_par_code: dict) -> dict:
+    """Couverture d'une liste de codes commune (un par station, vide = sans code) face au COG.
+
+    types_par_code : code -> ensemble des TYPECOM portant ce code. Un code est une « commune » s'il porte COM (une commune
+    nouvelle et sa commune déléguée partagent un code), sinon un « arrondissement » (ARM), sinon une « deleguee_ou_associee »
+    (COMD ou COMA seulement), sinon « absent » du COG.
+    """
+    codes = list(codes)
+    renseignes = [str(c).strip() for c in codes if c is not None and str(c).strip()]
+
+    def categorie(code: str) -> str:
+        types = types_par_code.get(code, set())
+        if "COM" in types:
+            return "commune"
+        if "ARM" in types:
+            return "arrondissement"
+        if types & {"COMD", "COMA"}:
+            return "deleguee_ou_associee"
+        return "absent"
+
+    distincts = sorted(set(renseignes))
+    modeles = ("commune", "arrondissement", "deleguee_ou_associee", "absent")
+    codes_par = dict.fromkeys(modeles, 0)
+    stations_par = dict.fromkeys(modeles, 0)
+    for code in distincts:
+        codes_par[categorie(code)] += 1
+    for code in renseignes:
+        stations_par[categorie(code)] += 1
+    return {
+        "stations": len(codes),
+        "sans_code": len(codes) - len(renseignes),
+        "codes_distincts": len(distincts),
+        "codes_par_categorie": codes_par,
+        "stations_par_categorie": stations_par,
+        "codes_absents": [c for c in distincts if categorie(c) == "absent"],
+    }
+
+
 def m3() -> None:
-    ids_instantane = {int(s["id"]) for s in telecharger_flux() if s.get("id") is not None}
+    ids_instantane ={int(s["id"]) for s in telecharger_flux() if s.get("id") is not None}
     r = requests.get(
         API + "prix-carburants-quotidien/exports/json",
         params={"select": "id,com_arm_code,dep_code", "limit": -1},
@@ -430,7 +469,42 @@ def m4c() -> None:
     print(f"  maj de {min(maj)} à {max(maj)} : {'état courant (un prix par couple)' if max(couples.values()) == 1 else 'journal'}")
 
 
-MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m4c": m4c, "m5": m5, "m8": m8}
+def m9() -> None:
+    """Couverture des com_arm_code du flux quotidien dans ref_cog_commune (COG 2026) : codes sans correspondance, arrondissements."""
+    r = requests.get(
+        API + "prix-carburants-quotidien/exports/json",
+        params={"select": "id,com_arm_code", "limit": -1},
+        headers=EN_TETES,
+        timeout=300,
+    )
+    r.raise_for_status()
+    par_station: dict[int, str | None] = {}
+    for ligne in r.json():
+        if ligne.get("id") is None:
+            continue
+        code = ligne.get("com_arm_code")
+        if not est_vide(code) or int(ligne["id"]) not in par_station:
+            par_station[int(ligne["id"])] = None if est_vide(code) else str(code).strip()
+    conn = _lecture()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT com, array_agg(DISTINCT typecom) FROM ref_cog_commune WHERE millesime = 2026 GROUP BY com")
+            types_par_code = {com: set(types) for com, types in cur.fetchall()}
+    finally:
+        conn.close()
+    res = couverture_codes(par_station.values(), types_par_code)
+    print(f"## M9 couverture des com_arm_code du quotidien dans ref_cog_commune (millésime 2026, {len(types_par_code)} codes)")
+    print(f"  stations : {res['stations']}, sans code : {res['sans_code']}, codes distincts : {res['codes_distincts']}")
+    print(f"  codes par catégorie : {res['codes_par_categorie']}")
+    print(f"  stations par catégorie : {res['stations_par_categorie']}")
+    print(f"  codes sans correspondance dans le COG ({len(res['codes_absents'])}) : {res['codes_absents'][:60]}")
+    codes = {c for c in par_station.values() if c}
+    for ville, parent, prefixes in (("Paris", "75056", ("751",)), ("Lyon", "69123", ("6938",)), ("Marseille", "13055", ("132",))):
+        arr = sorted(c for c in codes if c.startswith(prefixes))
+        print(f"  {ville} : code de la commune {parent} présent dans le quotidien : {parent in codes} ; codes de forme arrondissement présents : {len(arr)} {arr[:20]}")
+
+
+MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m4c": m4c, "m5": m5, "m8": m8, "m9": m9}
 
 
 def main(argv=None) -> None:
