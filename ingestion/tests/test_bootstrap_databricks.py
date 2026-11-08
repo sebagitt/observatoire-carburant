@@ -15,8 +15,10 @@ from ingestion.bootstrap_databricks import (
     controler_authentification,
     controler_entrepot,
     controler_variables,
+    extraire_colonne,
     lancer_bootstrap,
     lire_instructions,
+    lister_volumes,
     lire_variables,
     main,
     qualifier,
@@ -459,12 +461,57 @@ def test_commande_par_defaut_de_l_authentification_est_le_module_lui_meme(monkey
     assert vu["cwd"] == str(bootstrap_databricks.RACINE)
 
 
-def test_le_volume_depot_est_verifie_a_la_fin_et_nomme_dans_les_sorties():
-    client, se = faux_client()
+def test_volumes_avant_et_apres_sur_un_catalogue_vierge_le_schema_etant_absent_au_depart():
+    client, se = faux_client()  # carburant_bronze n'existe pas encore : pas de SHOW VOLUMES avant
     code, sorties = lancer(client)
     assert code == 0
-    assert [a[0] for a in se.appels if a[0].startswith("SHOW VOLUMES")] == ["SHOW VOLUMES IN workspace.carburant_bronze"]
-    assert "OK : Volume carburant_bronze.depot présent" in "\n".join(sorties)
+    assert [a[0] for a in se.appels if a[0].startswith("SHOW VOLUMES")] == ["SHOW VOLUMES IN workspace.carburant_bronze"] * 2
+    texte = "\n".join(sorties)
+    assert "Volumes avant : (schéma carburant_bronze absent)" in texte
+    assert "Volumes après le run 1 : depot" in texte and "Volumes après le run 2 : depot" in texte
+    assert "OK : Volume carburant_bronze.depot présent" in texte
+
+
+def test_volumes_avant_apres_run_1_et_apres_run_2_sur_un_catalogue_deja_amorce():
+    client, se = faux_client(schemas=EXISTANTS + NOUVEAUX)
+    se.volumes.add("workspace.carburant_bronze.depot")
+    code, sorties = lancer(client)
+    assert code == 0
+    assert [a[0] for a in se.appels if a[0].startswith("SHOW VOLUMES")] == ["SHOW VOLUMES IN workspace.carburant_bronze"] * 3
+    texte = "\n".join(sorties)
+    assert "Volumes avant : depot" in texte and "Volumes après le run 1 : depot" in texte and "Volumes après le run 2 : depot" in texte
+    assert "OK : 0 schémas créés (déjà présents)" in texte and "OK : run 2 identique au run 1" in texte
+
+
+def test_extraire_colonne_choisit_la_colonne_par_son_nom_puis_la_derniere_par_defaut():
+    def avec_colonnes(noms, lignes):
+        colonnes = [SimpleNamespace(name=n) for n in noms]
+        return SimpleNamespace(result=SimpleNamespace(data_array=lignes), manifest=SimpleNamespace(schema=SimpleNamespace(columns=colonnes)))
+
+    assert extraire_colonne(avec_colonnes(["namespace", "volume_name"], [["carburant_bronze", "depot"]]), "volume_name") == ["depot"]
+    assert extraire_colonne(avec_colonnes(["volume_name", "namespace"], [["depot", "carburant_bronze"]]), "volume_name") == ["depot"]
+    sans_manifest = SimpleNamespace(result=SimpleNamespace(data_array=[["carburant_bronze", "depot"]]))
+    assert extraire_colonne(sans_manifest, "volume_name") == ["depot"]  # repli : dernière colonne
+    assert extraire_colonne(SimpleNamespace(result=None), "volume_name") == []
+
+
+def test_lister_volumes_interroge_le_schema_carburant_bronze_du_catalogue():
+    client, se = faux_client()
+    se.volumes.add("workspace.carburant_bronze.depot")
+    assert lister_volumes(client, "entrepot", "workspace", dormir=lambda s: None) == ["depot"]
+    assert se.appels[0][0] == "SHOW VOLUMES IN workspace.carburant_bronze"
+
+
+def test_le_vrai_sdk_expose_les_appels_et_les_etats_utilises_par_le_bootstrap():
+    pytest.importorskip("databricks.sdk")
+    import inspect
+
+    from databricks.sdk.service.sql import StatementExecutionAPI, StatementState
+
+    parametres = inspect.signature(StatementExecutionAPI.execute_statement).parameters
+    assert {"statement", "warehouse_id", "wait_timeout"} <= set(parametres)
+    assert "statement_id" in inspect.signature(StatementExecutionAPI.get_statement).parameters
+    assert {"PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED", "CLOSED"} <= {etat.value for etat in StatementState}
 
 
 def test_ko_si_le_volume_n_existe_pas_apres_le_bootstrap():
