@@ -29,3 +29,10 @@ Databricks Free : serverless uniquement, 1 SQL warehouse 2X-Small, dbt threads e
 ## Compact Instructions
 Conserver : décisions d'architecture, schémas de tables, commandes qui marchent, erreurs résolues, tâche en cours.
 Oublier : sorties de logs longues, essais abandonnés.
+
+## Pédagogie et leçons (ajout du 08/11)
+- Avant une commande Docker, Airflow ou dbt qui modifie un état (up, restart, stop, exec avec écriture, dbt run ou build, dags unpause), ou à la première apparition d'une commande dans la séance : une à deux lignes en français qui disent ce qu'elle fait et pourquoi. Pas pour les lectures répétées (ps, logs, stats, SELECT).
+- Après une correction dont la cause est comprise : une entrée de trois lignes dans
+  docs/journal/learnings.md (titre : date, thème ; symptôme ; cause racine étiquetée établie, hypothèse ou inconnue ; correction et test). Jamais une cause présentée comme établie sans preuve.
+- Avant d'exécuter les consignes d'un message qui cite des étapes déjà faites, recouper avec git log et l'état réel ; en cas de doute, demander.
+- Aucun commit ni push de docs/fiches-source sans accord explicite.
