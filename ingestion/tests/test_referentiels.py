@@ -10,8 +10,11 @@ from ingestion.referentiels import (
     COLONNES_REGION,
     ErreurReferentiel,
     charger_cog,
+    charger_filosofi,
     lire_csv,
+    lire_filosofi,
     telecharger_cog,
+    telecharger_filosofi,
 )
 
 
@@ -142,3 +145,112 @@ def test_telechargement_ecrit_les_fichiers_et_donne_taille_et_empreinte(tmp_path
         assert (tmp_path / "cog" / "2026" / nom).read_bytes() == contenu
         assert resultat[nom] == (len(contenu), hashlib.sha256(contenu).hexdigest())
     assert all(u.startswith("https://www.insee.fr/fr/statistiques/fichier/8740222/") for u in appels)
+
+
+# --- Filosofi : fichier long, point-virgule, dans un zip -------------------------------------------------------------------
+
+ENTETE_FILOSOFI = ["GEO", "GEO_OBJECT", "FILOSOFI_MEASURE", "UNIT_MULT", "UNIT_MEASURE", "CONF_STATUS", "OBS_STATUS", "TIME_PERIOD", "OBS_VALUE"]
+
+
+def ligne_f(geo, niveau, mesure, valeur, obs="A", conf="F", periode="2023"):
+    return [geo, niveau, mesure, "0", "EUR_YR", conf, obs, periode, valeur]
+
+
+LIGNES_FILOSOFI = [
+    ligne_f("01001", "COM", "MED_SL", "26400"),
+    ligne_f("01001", "COM", "PR_MD60", ""),  # confidentiel : statut normal, valeur vide
+    ligne_f("15031", "COM", "MED_SL", "", obs="O"),  # valeur manquante
+    ligne_f("15031", "COM", "PR_MD60", "", obs="O"),
+    ligne_f("13201", "ARM", "MED_SL", "21300"),
+    ligne_f("13201", "ARM", "PR_MD60", "28.1"),
+    ligne_f("13055", "COM", "GI_SL", "0.32"),  # autre mesure : ignorée
+    ligne_f("001", "AAV2020", "MED_SL", "30000"),  # autre niveau : ignoré
+]
+
+
+def ecrire_zip_filosofi(chemin, lignes=LIGNES_FILOSOFI, entete=ENTETE_FILOSOFI, millesime=2023):
+    import zipfile
+
+    corps = ";".join(f'"{c}"' for c in entete) + "\n"
+    for ligne in lignes:
+        champs = [f'"{v}"' if i != 7 else v for i, v in enumerate(ligne)]  # TIME_PERIOD n'est pas entre guillemets
+        corps += ";".join(champs) + "\n"
+    with zipfile.ZipFile(chemin, "w") as z:
+        z.writestr(f"DS_FILOSOFI_CC_{millesime}_data.csv", corps)
+        z.writestr(f"DS_FILOSOFI_CC_{millesime}_metadata.csv", '"COD_VAR";"LIB_VAR";"COD_MOD";"LIB_MOD";"GEO_OBJECT"\n')
+    return chemin
+
+
+def test_lire_filosofi_pivote_les_deux_mesures_et_garde_les_statuts(tmp_path):
+    df = lire_filosofi(ecrire_zip_filosofi(tmp_path / "f.zip"), 2023).set_index(["GEO_OBJECT", "CODGEO"])
+    assert sorted(df.index) == [("ARM", "13201"), ("COM", "01001"), ("COM", "15031")]  # autres mesures et autres niveaux écartés
+    assert df.loc[("COM", "01001"), "MED_SL"] == 26400.0 and df.loc[("COM", "01001"), "PR_MD60"] is None
+    assert df.loc[("COM", "01001"), "PR_MD60_STATUT"] == "A" and df.loc[("COM", "01001"), "MED_SL_CONF"] == "F"
+    assert df.loc[("COM", "15031"), "MED_SL"] is None and df.loc[("COM", "15031"), "MED_SL_STATUT"] == "O"
+    assert df.loc[("ARM", "13201"), "PR_MD60"] == 28.1
+
+
+def test_lire_filosofi_refuse_un_entete_inattendu(tmp_path):
+    zip_ = ecrire_zip_filosofi(tmp_path / "f.zip", entete=ENTETE_FILOSOFI[:-1], lignes=[l[:-1] for l in LIGNES_FILOSOFI])
+    with pytest.raises(ErreurReferentiel, match="colonnes"):
+        lire_filosofi(zip_, 2023)
+
+
+def test_lire_filosofi_refuse_une_autre_periode(tmp_path):
+    zip_ = ecrire_zip_filosofi(tmp_path / "f.zip", lignes=[ligne_f("01001", "COM", "MED_SL", "26400", periode="2021")])
+    with pytest.raises(ErreurReferentiel, match="TIME_PERIOD"):
+        lire_filosofi(zip_, 2023)
+
+
+def test_lire_filosofi_refuse_une_valeur_non_numerique(tmp_path):
+    zip_ = ecrire_zip_filosofi(tmp_path / "f.zip", lignes=[ligne_f("01001", "COM", "MED_SL", "26,4k")])
+    with pytest.raises(ErreurReferentiel, match="OBS_VALUE"):
+        lire_filosofi(zip_, 2023)
+
+
+def test_lire_filosofi_refuse_un_zip_sans_fichier_de_donnees(tmp_path):
+    import zipfile
+
+    chemin = tmp_path / "vide.zip"
+    with zipfile.ZipFile(chemin, "w") as z:
+        z.writestr("autre.csv", "x")
+    with pytest.raises(ErreurReferentiel, match="données"):
+        lire_filosofi(chemin, 2023)
+
+
+def test_chargement_filosofi_idempotent_et_millesimes_separes(conn, tmp_path):
+    zip_ = ecrire_zip_filosofi(tmp_path / "f.zip")
+    assert charger_filosofi(conn, zip_, 2023, validateur=valide) == {"ref_filosofi_commune": 3}
+    charger_filosofi(conn, zip_, 2023, validateur=valide)
+    assert compter(conn, "ref_filosofi_commune", 2023) == 3
+    zip_2021 = ecrire_zip_filosofi(tmp_path / "f21.zip", millesime=2021, lignes=[ligne_f("01001", "COM", "MED_SL", "25000", periode="2021")])
+    charger_filosofi(conn, zip_2021, 2021, validateur=valide)
+    assert compter(conn, "ref_filosofi_commune", 2021) == 1 and compter(conn, "ref_filosofi_commune", 2023) == 3
+    with conn.cursor() as cur:
+        cur.execute("SELECT med_sl, pr_md60, med_sl_statut FROM ref_filosofi_commune WHERE millesime = 2023 AND codgeo = '15031'")
+        assert cur.fetchone() == (None, None, "O")
+
+
+def test_chargement_filosofi_refuse_par_la_validation_n_ecrit_rien(conn, tmp_path):
+    def refuse(df):
+        return {"success": False, "echecs": [{"expectation": "expect_x", "colonne": "MED_SL"}]}
+
+    with pytest.raises(ErreurReferentiel, match="validation"):
+        charger_filosofi(conn, ecrire_zip_filosofi(tmp_path / "f.zip"), 2023, validateur=refuse)
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('ref_filosofi_commune')")
+        assert cur.fetchone()[0] is None
+
+
+def test_telechargement_filosofi_ecrit_le_zip_et_donne_taille_et_empreinte(tmp_path):
+    contenu = b"PK-faux-zip"
+    appels = []
+
+    def obtenir(url):
+        appels.append(url)
+        return contenu
+
+    resultat = telecharger_filosofi(tmp_path / "filosofi" / "2023", obtenir=obtenir)
+    assert resultat == {"FILOSOFI_CC_csv.zip": (len(contenu), hashlib.sha256(contenu).hexdigest())}
+    assert (tmp_path / "filosofi" / "2023" / "FILOSOFI_CC_csv.zip").read_bytes() == contenu
+    assert appels == ["https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip"]
