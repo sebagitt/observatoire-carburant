@@ -119,3 +119,15 @@ def test_couverture_codes_classe_chaque_code_et_chaque_station():
 def test_couverture_codes_sans_aucune_station():
     r = couverture_codes([], {})
     assert r["stations"] == 0 and r["codes_distincts"] == 0 and r["codes_absents"] == []
+
+
+def test_rupture_par_type_compte_les_fins_et_les_ruptures_sans_type():
+    from ingestion.mesures_carburants import rupture_par_type
+
+    ruptures = [
+        'id="1" nom="Gazole" debut="2026-01-01" fin="2026-01-02" type="temporaire"',
+        'id="1" nom="E10" debut="2026-01-01" fin="" type="temporaire"',
+        'id="2" nom="SP98" debut="2026-01-01" fin="" type="definitive"',
+        'id="3" nom="GPLc" debut="2026-01-01" fin="2026-02-01"',
+    ]
+    assert rupture_par_type(ruptures) == {"(sans type)": (1, 1), "definitive": (1, 0), "temporaire": (2, 1)}

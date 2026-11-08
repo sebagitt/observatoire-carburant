@@ -336,6 +336,18 @@ def entete_zip(octets: bytes) -> dict:
     }
 
 
+def rupture_par_type(ruptures: list[str]) -> dict[str, tuple[int, int]]:
+    """Par type de rupture (« (sans type) » si l'attribut manque) : (nombre de ruptures, nombre avec une fin renseignée)."""
+    compte: dict[str, list[int]] = {}
+    for attributs in ruptures:
+        trouve = re.search(r'type="([^"]*)"', attributs)
+        type_rupture = trouve.group(1) if trouve else "(sans type)"
+        ligne = compte.setdefault(type_rupture, [0, 0])
+        ligne[0] += 1
+        ligne[1] += bool(re.search(r'fin="[^"]+"', attributs))
+    return {t: (n, f) for t, (n, f) in sorted(compte.items())}
+
+
 def m4b(taille_max: int = 256 * 1024) -> None:
     """Début du flux annuel : au plus 256 Ko lus (le serveur ignore Range), jamais de téléchargement complet."""
     for annee in ("2026", "2025"):
@@ -364,8 +376,9 @@ def m4b(taille_max: int = 256 * 1024) -> None:
         print(f"  valeur identique à l'enregistrement précédent (même carburant, toutes stations de l'extrait) : {identiques}/{total}")
         ruptures = re.findall(r"<rupture ([^>]*?)/>", texte)
         avec_fin = sum(bool(re.search(r'fin="[^"]+"', r)) for r in ruptures)
-        types = collections.Counter(re.findall(r'type="([^"]*)"', " ".join(ruptures)))
-        print(f"  ruptures de l'extrait : {len(ruptures)}, fin renseignée : {avec_fin} ({avec_fin / len(ruptures):.1%}), types {dict(types)}")
+        print(f"  ruptures de l'extrait : {len(ruptures)}, fin renseignée : {avec_fin} ({avec_fin / len(ruptures):.1%})")
+        for type_rupture, (n, n_fin) in rupture_par_type(ruptures).items():
+            print(f"    type {type_rupture} : {n} ruptures, fin renseignée {n_fin} ({n_fin / n:.1%})")
 
 
 def latence_minutes(collecte_ts, maj) -> float:
