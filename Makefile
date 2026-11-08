@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-cog collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-cog charger-filosofi collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -60,6 +60,10 @@ rehash-etats:
 # dans la base collecte (une transaction, rejouable sans effet). Dans le conteneur airflow.
 charger-cog:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.referentiels cog --telecharger
+
+# Filosofi 2023 (niveau de vie médian, taux de pauvreté, niveaux commune et arrondissement) : même principe, table ref_filosofi_commune.
+charger-filosofi:
+	docker compose exec -w /opt/airflow/project airflow python -m ingestion.referentiels filosofi --telecharger
 
 # Mesures de la fiche carburants, dans le conteneur : make mesure-carburants M=m1 (m1 à m5, m8, m9, avec m4b et m4c)
 mesure-carburants:
