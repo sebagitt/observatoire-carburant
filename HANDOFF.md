@@ -1,9 +1,9 @@
-# HANDOFF : fin de séance du 2026-11-08 (J3 clos : bootstrap, COG, Filosofi, SIRENE en documentation)
+# HANDOFF : fin de séance du 2026-11-08, dernière mesure à 15:25 (J3 clos : bootstrap, COG, Filosofi, SIRENE en documentation)
 
 ## 1. Tâche suivante : prochaine séance, dans cet ordre
 
 1. `make reprise`. Premier verdict EN ATTENTE possible (normal), relancer au quart d'heure suivant. Comparer les identifiants de conteneur (section 2) avant et après : ils doivent être identiques, aucun `Recreate` dans la sortie. Après un arrêt, attendre un rattrapage (mesures : après environ 46 h d'arrêt, 10 737 prix et 1 266 états changés, soit 12,9 % des environ 9 800 stations ; après 22 h, 14 719 prix et 1 222 états).
-2. **Le push n'est pas fait.** Les commits de J3 sont locaux (28 d'avance sur `origin/main` avec celui de ce HANDOFF). L'utilisateur lit `HANDOFF.md` puis dit `push`. Avant : `git status -sb`, `git log origin/main..HEAD --oneline`, `git diff origin/main..HEAD --stat`, noms de fichiers sans `.env`, `data/`, `.venv`, `docs/journal`, `docs/guide`, `.dump`, `.zip`, aucun Co-Authored-By, chemin local, secret ni tiret cadratin, et `git show --stat --oneline -3` collé.
+2. Fin de séance : push après accord de l'utilisateur ; au début de la séance suivante, vérifier `git status -sb` (attendu : aucun ahead). Avant tout push : `git status -sb`, `git log origin/main..HEAD --oneline`, `git diff origin/main..HEAD --stat`, noms de fichiers sans `.env`, `data/`, `.venv`, `docs/journal`, `docs/guide`, `.dump`, `.zip`, aucun Co-Authored-By, chemin local, secret ni tiret cadratin, et `git show --stat --oneline -3` collé.
 3. Début de J4 : correctif de `charger` (FileNotFoundError au retry après un chargement terminé), en TDD, commit séparé, juste après la fin d'un run ; puis DAG de chargement vers Databricks. **La spécification n'est pas accessible à Claude Code** : le chat donne le contenu de J4 (ne pas deviner).
 4. Décision du backfill du flux annuel (J4 ou J5) : voir la fiche carburants.
 5. Mémoire d'Airflow : remesurer la pente sur plusieurs heures (0,103 Gio par heure aux deux mesures, voir le tableau).
@@ -11,7 +11,7 @@
 
 J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 1), COG et Filosofi chargés dans `collecte` avec GX, SIRENE en documentation seule (données en J8 si B-lite).
 
-## 2. État (2026-11-08, 14:30 UTC)
+## 2. État (2026-11-08, dernière mesure : tests passés à 15:25, heure de Paris)
 
 - Collecte en marche (DAG `collecte_flux`, toutes les 15 minutes), `is_paused` False. Arrêt du 06/11 14:30:07 au 08/11 12:29:26 (environ 46 h), repris sans recréation.
 - Tests : `make test` (conteneur) 117 passés, `make test-bootstrap` (hôte) 72 passés, soit 189 pour `make test-tout`.
@@ -21,7 +21,7 @@ J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 
 - Pile EnergiScope : projet terminé et publié, ses 7 conteneurs sont à `restart=no` et arrêtés. `make reprise` avertit si une autre pile compose tourne.
 - Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261106T130019Z.dump` (avant la recréation d'airflow), `collecte_20261105T143645Z.dump`. Aucun `pg_dump` plus récent : en faire un avant toute recréation.
 - Pas d'hôte 24/7 : la collecte s'arrête avec le projet (jusqu'à J15 plus 7 jours), à écrire dans le README.
-- Fiches commitées en local, non poussées : `docs/fiches-source/carburants.md` (mise à jour du 08/11), `cog.md`, `filosofi.md`, `sirene.md`.
+- Fiches : `docs/fiches-source/carburants.md` (mise à jour du 08/11), `cog.md`, `filosofi.md`, `sirene.md`.
 - Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 14 entrées amorcées à la clôture de J3, cause étiquetée établie, hypothèse ou inconnue). Détail du jour : `docs/journal/J3.md` (ignoré).
 - Règles de pédagogie : section « Pédagogie et leçons » de `CLAUDE.md` (expliquer en une ou deux lignes les commandes qui modifient un état, entrée de trois lignes dans `learnings.md` après chaque correction comprise, recouper les messages qui citent des étapes déjà faites, aucun commit de `docs/fiches-source` sans accord).
 
