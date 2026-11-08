@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from ingestion.carburants import _vers_utc
-from ingestion.mesures_carburants import classer_disparitions, entete_zip, est_vide, latence_minutes, lots_ecartes, resume, taux_nulls
+from ingestion.mesures_carburants import classer_disparitions, couverture_codes, entete_zip, est_vide, latence_minutes, lots_ecartes, resume, taux_nulls
 
 T0 = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -98,3 +98,24 @@ def test_une_conversion_sans_decalage_donnerait_une_latence_negative_en_hiver():
     # garde-fou : si maj était lue en UTC alors que c'est de l'heure de Paris, la latence d'hiver serait de -55 minutes
     collecte = datetime(2026, 10, 26, 11, 5, tzinfo=timezone.utc)
     assert latence_minutes(collecte, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)) == -55
+
+
+def test_couverture_codes_classe_chaque_code_et_chaque_station():
+    types = {
+        "01001": {"COM"},
+        "75101": {"ARM"},
+        "01015": {"COM", "COMD"},  # une commune nouvelle et sa commune déléguée portent le même code : c'est une commune
+        "01016": {"COMD"},
+        "02001": {"COMA"},
+    }
+    codes = ["01001", "01001", "75101", "01015", "01016", "02001", "99999", "99998", "99999", None, "", "  "]
+    r = couverture_codes(codes, types)
+    assert r["stations"] == 12 and r["sans_code"] == 3 and r["codes_distincts"] == 7
+    assert r["codes_par_categorie"] == {"commune": 2, "arrondissement": 1, "deleguee_ou_associee": 2, "absent": 2}
+    assert r["stations_par_categorie"] == {"commune": 3, "arrondissement": 1, "deleguee_ou_associee": 2, "absent": 3}
+    assert r["codes_absents"] == ["99998", "99999"]
+
+
+def test_couverture_codes_sans_aucune_station():
+    r = couverture_codes([], {})
+    assert r["stations"] == 0 and r["codes_distincts"] == 0 and r["codes_absents"] == []
