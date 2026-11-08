@@ -517,7 +517,54 @@ def m9() -> None:
         print(f"  {ville} : code de la commune {parent} présent dans le quotidien : {parent in codes} ; codes de forme arrondissement présents : {len(arr)} {arr[:20]}")
 
 
-MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m4c": m4c, "m5": m5, "m8": m8, "m9": m9}
+def couverture_filosofi(codes, valeurs: dict) -> dict:
+    """Part des stations (un code par station, vide = sans code) dont la commune a MED_SL et PR_MD60 renseignés dans Filosofi.
+
+    valeurs : codgeo (commune ou arrondissement) -> (med_sl, pr_md60), None si vide. Un code absent de `valeurs` n'a pas de ligne.
+    """
+    codes = list(codes)
+    res = {"stations": len(codes), "sans_code": 0, "sans_ligne": 0, "med_sl": 0, "pr_md60": 0, "les_deux": 0}
+    for code in codes:
+        code = None if code is None or not str(code).strip() else str(code).strip()
+        if code is None:
+            res["sans_code"] += 1
+        elif code not in valeurs:
+            res["sans_ligne"] += 1
+        else:
+            med, pr = valeurs[code]
+            res["med_sl"] += med is not None
+            res["pr_md60"] += pr is not None
+            res["les_deux"] += med is not None and pr is not None
+    return res
+
+
+def m10() -> None:
+    """Part des stations du quotidien qui ont un MED_SL et un PR_MD60 renseignés (Filosofi 2023) via com_arm_code, arrondissements compris."""
+    r = requests.get(API + "prix-carburants-quotidien/exports/json", params={"select": "id,com_arm_code", "limit": -1}, headers=EN_TETES, timeout=300)
+    r.raise_for_status()
+    par_station: dict[int, str | None] = {}
+    for ligne in r.json():
+        if ligne.get("id") is None:
+            continue
+        code = ligne.get("com_arm_code")
+        if not est_vide(code) or int(ligne["id"]) not in par_station:
+            par_station[int(ligne["id"])] = None if est_vide(code) else str(code).strip()
+    conn = _lecture()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT codgeo, med_sl, pr_md60 FROM ref_filosofi_commune WHERE millesime = 2023")
+            valeurs = {c: (m, p) for c, m, p in cur.fetchall()}
+    finally:
+        conn.close()
+    res = couverture_filosofi(par_station.values(), valeurs)
+    n = res["stations"]
+    print(f"## M10 stations du quotidien et Filosofi 2023 ({len(valeurs)} zones COM et ARM), {n} stations")
+    print(f"  sans code : {res['sans_code']} ; code sans ligne Filosofi : {res['sans_ligne']}")
+    for cle, libelle in (("med_sl", "MED_SL renseigné"), ("pr_md60", "PR_MD60 renseigné"), ("les_deux", "les deux renseignés")):
+        print(f"  {libelle} : {res[cle]} ({res[cle] / n:.1%})")
+
+
+MESURES = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m4b": m4b, "m4c": m4c, "m5": m5, "m8": m8, "m9": m9, "m10": m10}
 
 
 def main(argv=None) -> None:

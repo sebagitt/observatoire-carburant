@@ -131,3 +131,11 @@ def test_rupture_par_type_compte_les_fins_et_les_ruptures_sans_type():
         'id="3" nom="GPLc" debut="2026-01-01" fin="2026-02-01"',
     ]
     assert rupture_par_type(ruptures) == {"(sans type)": (1, 1), "definitive": (1, 0), "temporaire": (2, 1)}
+
+
+def test_couverture_filosofi_compte_codes_vides_absents_et_valeurs():
+    from ingestion.mesures_carburants import couverture_filosofi
+
+    valeurs = {"01001": (25000, 12.0), "01002": (24000, None), "75101": (30000, 9.0), "55039": (None, None)}
+    r = couverture_filosofi(["01001", "01002", "75101", "55039", "99999", None, " "], valeurs)
+    assert r == {"stations": 7, "sans_code": 2, "sans_ligne": 1, "med_sl": 3, "pr_md60": 2, "les_deux": 2}

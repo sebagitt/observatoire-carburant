@@ -69,6 +69,6 @@ charger-filosofi:
 mesure-referentiels:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.mesures_referentiels filosofi
 
-# Mesures de la fiche carburants, dans le conteneur : make mesure-carburants M=m1 (m1 à m5, m8, m9, avec m4b et m4c)
+# Mesures de la fiche carburants, dans le conteneur : make mesure-carburants M=m1 (m1 à m5, m8, m9, m10, avec m4b et m4c)
 mesure-carburants:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.mesures_carburants $(M)
