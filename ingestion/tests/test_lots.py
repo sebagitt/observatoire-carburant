@@ -175,3 +175,17 @@ def test_purge_refuse_un_lot_dont_un_prix_existe_avec_une_autre_maj(conn, tmp_pa
     assert bilan["supprimes"] == []
     assert "prix 4/5" in bilan["refuses"][HORODATAGE]
     assert (tmp_path / f"prix_{HORODATAGE}.parquet").exists()
+
+
+def test_purge_refuse_un_lot_dont_une_station_existe_avec_un_autre_hash(conn, tmp_path):
+    lot = ecrire_lot(tmp_path)
+    charger_en_base(conn, lot)  # base : 5 stations, adresse "<i> rue A"
+    stations = [{"id": i, "adresse": f"{i} rue A", "ville": "X"} for i in range(5)]
+    stations[0]["adresse"] = "nouvelle rue"  # même station, état jamais stocké
+    construire_etats(stations).to_parquet(tmp_path / f"etat_{HORODATAGE}.parquet", index=False)
+
+    bilan = purger_lots(conn, tmp_path, maintenant=MAINTENANT)
+
+    assert bilan["supprimes"] == []
+    assert "états 4/5" in bilan["refuses"][HORODATAGE]
+    assert (tmp_path / f"etat_{HORODATAGE}.parquet").exists()
