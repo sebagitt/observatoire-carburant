@@ -202,3 +202,23 @@ def test_purge_refuse_un_lot_incomplet_avec_la_bonne_raison(conn, tmp_path, manq
     assert bilan["supprimes"] == []
     assert "incomplet" in bilan["refuses"][HORODATAGE]
     assert lire_journal(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "ecart, supprime",
+    [(timedelta(hours=48), False), (timedelta(hours=48, seconds=1), True)],
+    ids=["48h_exactes_refus", "48h_plus_1s_suppression"],
+)
+def test_purge_frontiere_de_48_h(conn, tmp_path, ecart, supprime):
+    lot = ecrire_lot(tmp_path)
+    charger_en_base(conn, lot)  # contenu confirmé en base
+
+    bilan = purger_lots(conn, tmp_path, maintenant=COLLECTE_TS + ecart)
+
+    if supprime:
+        assert bilan["supprimes"] == [HORODATAGE]
+        assert not (tmp_path / f"prix_{HORODATAGE}.parquet").exists()
+    else:
+        assert bilan["supprimes"] == []
+        assert "âge 48.0 h" in bilan["refuses"][HORODATAGE]
+        assert (tmp_path / f"prix_{HORODATAGE}.parquet").exists()
