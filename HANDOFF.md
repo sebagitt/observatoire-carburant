@@ -1,20 +1,32 @@
-# HANDOFF : fin de séance du 2026-11-08, dernière mesure à 15:25 (J3 clos : bootstrap, COG, Filosofi, SIRENE en documentation)
+# HANDOFF : fin de séance du 2026-11-09, dernière mesure à 16:31 (J4 clos sur le correctif de charger, la purge, les mutations et les tests ; chargement vers Databricks reporté en J5)
 
 ## 1. Tâche suivante : prochaine séance, dans cet ordre
 
-1. `make reprise`. Premier verdict EN ATTENTE possible (normal), relancer au quart d'heure suivant. Comparer les identifiants de conteneur (section 2) avant et après : ils doivent être identiques, aucun `Recreate` dans la sortie. Après un arrêt, attendre un rattrapage (mesures : après environ 46 h d'arrêt, 10 737 prix et 1 266 états changés, soit 12,9 % des environ 9 800 stations ; après 22 h, 14 719 prix et 1 222 états).
-2. Fin de séance : push après accord de l'utilisateur ; au début de la séance suivante, vérifier `git status -sb` (attendu : aucun ahead). Avant tout push : `git status -sb`, `git log origin/main..HEAD --oneline`, `git diff origin/main..HEAD --stat`, noms de fichiers sans `.env`, `data/`, `.venv`, `docs/journal`, `docs/guide`, `.dump`, `.zip`, aucun Co-Authored-By, chemin local, secret ni tiret cadratin, et `git show --stat --oneline -3` collé.
-3. Début de J4 : correctif de `charger` (FileNotFoundError au retry après un chargement terminé), en TDD, commit séparé, juste après la fin d'un run ; puis DAG de chargement vers Databricks. **La spécification n'est pas accessible à Claude Code** : le chat donne le contenu de J4 (ne pas deviner).
-4. Décision du backfill du flux annuel (J4 ou J5) : voir la fiche carburants.
-5. Mémoire d'Airflow : remesurer la pente sur plusieurs heures (0,103 Gio par heure aux deux mesures, voir le tableau).
-6. Clôture de la séance : debrief-jour, `make test-tout`, HANDOFF, push (après accord), `make pause` à un minute hors :00, :15, :30, :45.
+1. `make reprise`. Premier verdict EN ATTENTE possible (normal), relancer au quart d'heure suivant. Comparer les identifiants de conteneur (section 2) avant et après : ils doivent être identiques, aucun `Recreate` dans la sortie. Après un arrêt, attendre un rattrapage (mesures : après environ 46 h d'arrêt, 10 737 prix et 1 266 états changés, soit 12,9 % des environ 9 800 stations ; après 22 h, 14 719 prix et 1 222 états ; après environ 18 h, au 08/11 à 15:00, 7 370 prix et 803 états, information de l'utilisateur).
+2. Fin de séance : push après accord de l'utilisateur ; au début de la séance suivante, vérifier `git status -sb` (attendu : aucun ahead) et `git ls-remote origin refs/heads/main` (attendu : `f35c605` ou un commit plus récent). Avant tout push : `git status -sb`, `git log origin/main..HEAD --oneline`, `git diff origin/main..HEAD --stat`, noms de fichiers sans `.env`, `data/`, `.venv`, `docs/journal`, `docs/guide`, `.dump`, `.zip`, aucun Co-Authored-By, chemin local, secret ni tiret cadratin, et `git show --stat --oneline -3` collé.
+3. J5 : **la spécification n'est pas accessible à Claude Code** ; spec à réécrire (non faite), avec le chargement vers Databricks prévu en premier bloc (information de l'utilisateur). Le chat donne le contenu (ne pas deviner). Avant tout code : la note de conception de l'étape 2, reportée de J4, sans code ni commande qui modifie un état :
+   - (a) recréation d'`airflow` : accord conditionnel, une seule recréation, planifiée, après code et tests prêts, `pg_dump` frais, identifiants comparés avant et après, métadonnées d'Airflow déplacées vers la base `airflow` dans la même opération, accord à redemander au moment venu ;
+   - (b) tableau de trois options : A reconstruire l'image (avec les métadonnées), B ajouter un service au compose sans toucher aux conteneurs existants, C script sur l'hôte ; pour chacune : ce qui est recréé, ce qui est perdu, conformité avec la spec (DAG de chargement dans Airflow), effort ; pour B, vérifier dans la documentation que `up -d --no-recreate` ajoute un service sans toucher aux autres, sans l'essayer sur la vraie pile ;
+   - (c) jeton Databricks : options et risques, sans produire de `docker inspect` ni de `docker compose config` bruts ;
+   - (d) export incrémental : source de vérité du curseur, borne semi-ouverte, marge avant le dernier passage terminé, noms de fichiers déterministes, reprise après échec à mi-chemin ;
+   - (e) méthode de chargement : comportement face à un fichier ré-exporté sous le même nom avec un contenu différent ; quotas avec l'adresse de la page lue et la date de lecture ;
+   - (f) concurrence (`parallelism=2`, le chargement ne doit pas retarder le run de 15 minutes) et estimation mémoire de l'export Parquet ;
+   - (g) ordre de livraison : import du SDK dans les fonctions, DAG ajouté en dernier ; fixer `catchup` explicitement dans le DAG de chargement (`collecte_flux` a `catchup=False`, ce qui ne dit rien du DAG de chargement).
+4. Backfill du flux annuel en J5, si le nommage et le curseur permettent une seconde source : voir la fiche carburants.
+5. À décider : brancher la purge (`purger_lots`, non branchée, `data/lots` grossit) ; cible qui exécute `airflow/tests` (option B proposée : les déplacer dans `ingestion/tests`, non décidée).
+6. Mémoire d'Airflow : remesurer la pente sur plusieurs heures (0,103 Gio par heure aux deux mesures, voir le tableau).
+7. Clôture de la séance : debrief-jour, `make test-tout`, HANDOFF, push (après accord), `make pause` à un minute hors :00, :15, :30, :45.
 
 J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 1), COG et Filosofi chargés dans `collecte` avec GX, SIRENE en documentation seule (données en J8 si B-lite).
 
-## 2. État (2026-11-08, dernière mesure : tests passés à 15:25, heure de Paris)
+J4 est clos sur le correctif de `charger` (`4fa7b1f`), la purge confirmée par le contenu (écrite et testée, non branchée), les mutations de la purge et quatre tests ajoutés (`848b170`, `6f281bb`, `83b498a`, `05494b7`), et le test de transmission du jeton (`f35c605`). Le DAG de chargement vers Databricks n'est pas écrit : le critère initial de J4 n'est pas atteint, il est reporté en J5 par décision de l'utilisateur.
 
-- Collecte en marche (DAG `collecte_flux`, toutes les 15 minutes), `is_paused` False. Arrêt du 06/11 14:30:07 au 08/11 12:29:26 (environ 46 h), repris sans recréation.
-- Tests : `make test` (conteneur) 117 passés, `make test-bootstrap` (hôte) 72 passés, soit 189 pour `make test-tout`.
+## 2. État (2026-11-09, dernière mesure : `make test-tout` passé à 16:31, heure de Paris)
+
+- Collecte en marche (DAG `collecte_flux`, toutes les 15 minutes, `catchup=False`), `is_paused` False. Arrêt du 06/11 14:30:07 au 08/11 12:29:26 (environ 46 h), repris sans recréation. Reprise du 09/11 sans recréation (information de l'utilisateur) ; identifiants des conteneurs identiques jusqu'à 16:13:45 (mesuré), `StartedAt` `2026-11-09T08:50:45Z`, `RestartCount` 0 (lu à 12:42). Les 10 runs les plus récents lus à 15:22 et les 5 lus à 16:12 étaient `success`.
+- Tests : `make test` (conteneur) 133 passés, `make test-bootstrap` (hôte) 73 passés, soit 206 pour `make test-tout` (mesuré à 16:31, code retour 0).
+- Dépôt : `origin/main` à `f35c605` (`git ls-remote` à 16:30:36), aucun ahead. Commits de J4 : `4fa7b1f` (correctif de `charger`), `848b170`, `6f281bb`, `83b498a`, `05494b7` (tests de la purge), `f35c605` (test de transmission du jeton). Les cinq premiers ont été poussés à 15:46:08 ; `f35c605` a été poussé par l'utilisateur depuis VS Code, après contrôle du diff (heure non relevée).
+- Lots Parquet : `charger` ne supprime plus ses fichiers (logique dans `ingestion/lots.py`). `purger_lots` (âge supérieur à 48 h ET prix par clé et états par station et hash retrouvés dans Postgres, confirmation écrite dans `purge_journal.jsonl`) **n'est branchée nulle part**. `data/lots` grossit (16:31 : 78 fichiers, 193 168 Kio ; les 48 fichiers du 09/11 pèsent 137 590 639 octets ; extrapolation, non mesurée sur 24 h : environ 550 Mo par jour). Les 20 lots d'avant le 09/11 (12 retrouvés par contenu dont 7 lots du 05/11 dont les états avaient été bloqués par le garde-fou, 8 du 23/10 avec une `maj` décalée de 2 h) ne sont ni rechargés ni purgés (décision de l'utilisateur).
 - Tables de référence dans la base `collecte` : `ref_cog_commune` 37 496 lignes (millésime 2026), `ref_cog_departement` 101, `ref_cog_region` 18, `ref_filosofi_commune` 34 813 lignes (millésime 2023, 34 768 communes plus 45 arrondissements). Clé de `ref_filosofi_commune` : (`millesime`, `geo_object`, `codgeo`).
 - Databricks (catalogue `workspace`) : schémas `carburant_bronze`, `carburant_silver`, `carburant_gold` et Volume `carburant_bronze.depot` créés le 06/11. Les 7 schémas existants (`bronze`, `silver`, `gold`, `ci_silver`, `ci_gold`, `default`, `information_schema`) sont inchangés. Token valide jusqu'au 2027-06-17 (information de l'utilisateur).
 - Airflow : `AIRFLOW__CORE__PARALLELISM=2` (commit `0695b7c`). Métadonnées d'Airflow recréées le 06/11 à 13:00 (historique des runs avant cette heure perdu).
@@ -22,7 +34,7 @@ J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 
 - Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261108T145530Z.dump` (6 974 655 octets, UTC), pris à l'arrêt propre du 08/11 ; `collecte_20261106T130019Z.dump` (avant la recréation d'airflow) ; `collecte_20261105T143645Z.dump`. Faire un `pg_dump` frais avant toute recréation.
 - Pas d'hôte 24/7 : la collecte s'arrête avec le projet (jusqu'à J15 plus 7 jours), à écrire dans le README.
 - Fiches : `docs/fiches-source/carburants.md` (mise à jour du 08/11), `cog.md`, `filosofi.md`, `sirene.md`.
-- Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 14 entrées amorcées à la clôture de J3, cause étiquetée établie, hypothèse ou inconnue). Détail du jour : `docs/journal/J3.md` (ignoré).
+- Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 16 entrées, cause étiquetée établie, hypothèse ou inconnue). Détail des jours : `docs/journal/J3.md`, `docs/journal/J4.md` et `docs/journal/J4_mutations_purge.md` (ignorés).
 - Règles de pédagogie : section « Pédagogie et leçons » de `CLAUDE.md` (expliquer en une ou deux lignes les commandes qui modifient un état, entrée de trois lignes dans `learnings.md` après chaque correction comprise, recouper les messages qui citent des étapes déjà faites, aucun commit de `docs/fiches-source` sans accord).
 
 ### Identifiants des conteneurs (à comparer après `make pause` puis `make reprise`)
@@ -57,7 +69,7 @@ Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au p
 
 ## 3. Décisions d'architecture
 
-- Logique dans `ingestion/` et `quality/gx/` (pytest), DAG mince dans `airflow/dags/`. `ingestion/` et `airflow/dags/` sont montés dans le conteneur : une édition cassée arrête la collecte. Éditer juste après la fin d'un run, contrôler l'import, tester.
+- Logique dans `ingestion/` et `quality/gx/` (pytest), DAG mince dans `airflow/dags/`. `ingestion/` et `airflow/dags/` sont montés dans le conteneur : une édition cassée arrête la collecte. `ingestion/` hors `tests/` (dont `lots.py`) et `airflow/dags/` : écriture en fenêtre :01 à :14 de chaque quart d'heure, puis hors run en cours (`airflow dags list-runs collecte_flux`, aucun `running`) ; contrôler l'import, tester. `ingestion/tests/` : écriture hors :00, :15, :30, :45 et hors run en cours.
 - Hash d'état canonique (listes triées, JSON dans les chaînes parsé). Garde-fou à 30 % de stations changées par passage : **il fonctionne** (le 05/11 il a bloqué un lot parce que la source avait réordonné `services`, l'empreinte l'ignore maintenant). `services` reste dans le modèle (SCD2 `dim_station` prévu par la spec).
 - Pas d'unicité sur (station, hash) : une station peut revenir à un état déjà vu.
 - `passage_flux` non exhaustif (écriture non bloquante). Couverture calculée sur l'union des `collecte_ts` de `prix_flux` et `passage_flux`.
@@ -71,6 +83,11 @@ Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au p
 - Databricks : catalogue `workspace`, Volume `carburant_bronze.depot`, schémas `carburant_*`. Les schémas `bronze`, `silver`, `gold`, `ci_silver`, `ci_gold` et `default` appartiennent à un AUTRE projet (EnergiScope) : jamais touchés (test sur les noms qualifiés).
 - Bootstrap : trois contrôles distincts (variables nommées, authentification dans un processus enfant tué après 30 s, entrepôt prêt par `SELECT 1` scruté au plus 5 fois), au plus 5 interrogations par requête, arrêt à la première erreur, aucune valeur sensible affichée. Un entrepôt serverless arrêté démarre à la première requête.
 - Les quatre variables `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_CATALOG`, `DATABRICKS_WAREHOUSE_ID` sont lues dans l'environnement du processus (noms dans `.env.example`, valeurs dans `.env`). Pour `make bootstrap` et `make bootstrap-controles` seulement, make inclut `.env`.
+- `charger` ne supprime plus ses Parquet (`4fa7b1f`) : un retry rejoue sans effet ; fichier absent sans confirmation au journal de purge : `LotAbsentError` qui nomme le lot, échec sans retry. Raison : `passage_flux` n'est pas exhaustif, il ne sert pas à déduire « déjà chargé ».
+- Purge séparée, non branchée : lot de plus de 48 h ET contenu retrouvé dans Postgres (prix par clé, états par station et hash), confirmation écrite avant suppression, un lot non confirmé n'est jamais supprimé. Branchement à décider.
+- Aucun rechargement ni purge des 20 lots d'avant le 09/11 (décision de l'utilisateur).
+- Mutations : dans une copie hors dépôt, dans un conteneur jetable (`docker compose run --rm --no-deps ... bash -c`, `sh` est refusé par l'entrypoint d'Airflow), jamais dans le dossier monté ; `docker compose cp` vers le conteneur de collecte refusé (mémoire). Restauration prouvée par hash, identifiants des conteneurs et schémas `test_%` contrôlés avant et après.
+- Chargement vers Databricks, note de conception et backfill du flux annuel : J5 (backfill si le nommage et le curseur permettent une seconde source). `catchup` du DAG de chargement à fixer explicitement. Recréation d'`airflow` : accord conditionnel, une seule, planifiée, avec `pg_dump` frais et métadonnées déplacées vers la base `airflow`, accord à redemander.
 
 ### Règles non négociables
 
@@ -85,6 +102,7 @@ Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au p
 - **Pas de push sans accord** ; coller `git show --stat --oneline -3` avant. **Aucun commit ni push de `docs/fiches-source` sans accord explicite.**
 - Avant d'exécuter un message qui cite des étapes déjà faites, recouper avec `git log` et l'état réel.
 - Après une correction comprise : entrée de trois lignes dans `docs/journal/learnings.md`, cause étiquetée établie, hypothèse ou inconnue.
+- Un test vert ne prouve pas qu'il protège une règle : pour les règles critiques, mutation d'une ligne dans une copie hors dépôt, le test doit passer au rouge (voir `docs/journal/J4.md`).
 - Fin de journée : tests verts (`make test-tout`), debrief écrit, HANDOFF à jour, commit poussé (après accord).
 
 ## 4. Schémas
@@ -107,7 +125,17 @@ ref_filosofi_commune(millesime, geo_object, codgeo, med_sl, med_sl_statut, med_s
   PK (millesime, geo_object, codgeo) ; geo_object COM ou ARM
 ```
 
-Databricks (catalogue `workspace`) : `carburant_bronze` (avec le Volume `depot`), `carburant_silver`, `carburant_gold`. Les tables de référence sont dans Postgres `collecte` pour l'instant ; leur chargement vers Databricks est à faire (DAG de chargement, J4).
+Databricks (catalogue `workspace`) : `carburant_bronze` (avec le Volume `depot`), `carburant_silver`, `carburant_gold`. Les tables de référence sont dans Postgres `collecte` pour l'instant ; leur chargement vers Databricks est à faire (DAG de chargement, J5).
+
+Fichiers de lots (hors base), dans `LOTS_DIR` (`/opt/airflow/data/lots` dans le conteneur, `data/lots` sur l'hôte) :
+
+```text
+prix_<horodatage>.parquet   (station_id, carburant, maj, prix)        horodatage = AAAAMMJJTHHMMSSZ en UTC
+etat_<horodatage>.parquet   (station_id, etat_hash, etat)
+purge_journal.jsonl         une ligne JSON par lot confirmé : lot, confirme, confirme_le, age_heures,
+                            prix_lignes, prix_retrouvees, etats_lignes, etats_retrouves
+                            (n'existe pas encore : la purge n'est pas branchée)
+```
 
 ## 5. Commandes qui marchent
 
@@ -115,9 +143,9 @@ Databricks (catalogue `workspace`) : `carburant_bronze` (avec le Volume `depot`)
 make up                                  docker compose up -d --build (RECRÉE : premier démarrage ou changement de configuration, après pg_dump)
 make pause                               docker compose stop (jamais avant la fin de séance)
 make reprise                             up -d --no-recreate, unpause si besoin, 5 runs, comptes, 5 passages, autres piles, mémoire et PIDS, verdict
-make test                                tests du conteneur (117)
-make test-bootstrap                      tests du bootstrap Databricks sur l'hôte, dans .venv (72)
-make test-tout                           conteneur et hôte (189) : critère vert
+make test                                tests du conteneur (133)
+make test-bootstrap                      tests du bootstrap Databricks sur l'hôte, dans .venv (73)
+make test-tout                           conteneur et hôte (206) : critère vert
 make charger-cog                         télécharge, valide (GX), remplace le millésime 2026 : 37 496, 101 et 18 lignes
 make charger-filosofi                    télécharge, valide (GX), remplace le millésime 2023 : 34 813 lignes
 make mesure-referentiels                 Filosofi dans le COG par TYPECOM, valeurs vides, 7 communes annoncées
@@ -127,6 +155,8 @@ make rehash-etats [ARGS=--confirmer]     simulation par défaut, écrit seulemen
 make collecte-run                        airflow dags test collecte_flux (ÉCRIT dans les vraies tables)
 make bootstrap-controles                 variables, authentification, entrepôt prêt (aucune écriture)
 make bootstrap                           les trois contrôles, puis le SQL deux fois avec SHOW SCHEMAS / SHOW VOLUMES avant, après le run 1, après le run 2
+docker compose exec -T airflow airflow dags list-runs collecte_flux     runs récents : aucun running avant d'écrire un fichier de test
+git ls-remote origin refs/heads/main     tête réelle du dépôt distant (lecture seule), à recouper avec git status -sb
 ```
 
 Venv de l'hôte : `python -m venv .venv` puis `.venv/Scripts/pip install -r requirements-databricks.txt` (Python 3.14.3, versions épinglées).
@@ -146,6 +176,12 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur (par 
 - Un message ancien exécuté par erreur (`928407d`, fiche modifiée sans accord) : corrigé, règle de recoupement dans `CLAUDE.md`.
 - Un test collecté par erreur par pytest (`tester_...`) : renommé `controler_...`.
 - `grep -P` échoue avec la locale : vérifier les caractères en Python.
+- `charger` : `FileNotFoundError` au retry après un chargement terminé. Mécanisme **établi** (test rouge, lecture à `pd.read_parquet` après un `unlink`) ; déclencheur réel **hypothèse**, jamais observé. Correction : lots conservés, logique dans `ingestion/lots.py`, commit `4fa7b1f`.
+- Tests de la purge : 4 mutants survivants sur 7 (M2, M1b, M3b, M4b) et un test (ligne 154 de `test_bootstrap_databricks.py`) qui ne prouvait pas la transmission du jeton. Un test par survivant, rouge sous la mutation puis vert (`83b498a`, `05494b7`, `848b170`, `6f281bb`, `f35c605`).
+- `docker compose run ... sh` refusé par l'entrypoint d'Airflow (`invalid choice: 'sh'`) : utiliser `bash -c`.
+- Comparaison d'arbre faussée par les `__pycache__` écrits dans la copie de mutation : exclure `__pycache__` et poser `PYTHONDONTWRITEBYTECODE=1`.
+- Deux scripts d'attente lancés en double (`pkill` absent de ce shell) : tués par `kill` avant la mutation, aucune mutation en double.
+- Journaux annoncés qui n'existaient pas : seul le cycle de test M3b a un journal complet ; M4b, M2, M1b et le test du jeton n'ont que les sorties collées dans le chat.
 
 ## 7. Points ouverts
 
@@ -156,10 +192,16 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur (par 
 - Filosofi : 7 communes en statut `O` hors liste de la page (six de la Meuse, Leménil-Mitry), cause non vérifiée (hypothèse : sans habitants) ; Île-de-Sein et Île-Molène sans ligne, absence non expliquée ; lien entre le vide de `PR_MD60` et la correction du 06/08/2026 non établi.
 - NAF 2025 applicable en janvier 2027 : documenté, non revérifié dans les fichiers. Documentation de l'API Sirene non lue (valeurs de `etatAdministratifEtablissement`, `statutDiffusionEtablissement`, format du code d'activité).
 - Passages à zéro insertion : rejeux de créneau lus quelques secondes après un passage ; un cas isolé le 08/11 12:45:04 sans cause vérifiée.
-- `charger` : FileNotFoundError au retry après un chargement terminé (début de J4).
-- Métadonnées d'Airflow encore dans le conteneur : à passer sur la base Postgres `airflow`.
+- Purge non branchée : `data/lots` grossit (extrapolation d'environ 550 Mo par jour, non mesurée sur 24 h) ; un lot dont l'état n'a jamais été stocké ou dont le hash suit l'ancienne règle ne sera jamais purgé (lecture du code).
+- `airflow/tests` non exécuté par `make test` (non monté dans le conteneur, chemins relatifs à la racine) : option B proposée (déplacer ces tests dans `ingestion/tests`), non décidée.
+- Déclencheur réel d'un retry après un chargement terminé : inconnu (hypothèse non vérifiée : arrêt de la tâche après l'ancien `unlink`). Rejeu tardif d'un vieux lot : version d'état hors ordre possible (lecture du code, non exécuté).
+- 8 lots du 23/10 (08:09 à 08:45) : `maj` décalée de 2 h ; cause probable fuseau (heure de Paris lue comme UTC), hypothèse, commit du correctif non cherché.
+- Traces des cycles de test de J4 : scripts et journaux dans le scratchpad (hors dépôt, non versionnés) ; seul le cycle M3b a un journal complet.
+- Spécification de J5 : à réécrire (non faite), le chargement vers Databricks est prévu en premier bloc.
+- Push de `f35c605` : fait par l'utilisateur depuis VS Code, après contrôle du diff, heure non relevée.
+- Métadonnées d'Airflow encore dans le conteneur : à passer sur la base Postgres `airflow`, dans l'unique recréation planifiée d'`airflow` (accord conditionnel, à redemander).
 - `requirements-dev.txt` non épinglé ; `pandas==2.1.4` et `great-expectations==1.24.1` indisponibles sous Python 3.14 (d'où `requirements-databricks.txt` séparé).
 - Durée d'un démarrage à froid de l'entrepôt serverless : non mesurée (environ une minute au premier contrôle).
 - Flaky `make test` : erreurs DNS occasionnelles.
 - Certification Databricks à choisir (Data Analyst ou Data Engineer Associate) avant J9.
-- À reporter dans le Guide : `services` reste dans le modèle, pas d'unicité (station, hash), couverture sur l'union des `collecte_ts`, `com_arm_code` par arrondissement pour Paris, Lyon et Marseille (jointure spatiale en J6), `MED_SL` principal, flux annuel en backfill (J4 ou J5), SIRENE en documentation seule (Parquet : établissements et historique), schémas d'EnergiScope intouchables, règle `--no-recreate` et son exception, `make up` recrée, `make collecte-run` écrit dans les vraies tables, `parallelism=2`, `make test-tout`, `learnings.md`.
+- À reporter dans le Guide : `services` reste dans le modèle, pas d'unicité (station, hash), couverture sur l'union des `collecte_ts`, `com_arm_code` par arrondissement pour Paris, Lyon et Marseille (jointure spatiale en J6), `MED_SL` principal, flux annuel en backfill (J4 ou J5), SIRENE en documentation seule (Parquet : établissements et historique), schémas d'EnergiScope intouchables, règle `--no-recreate` et son exception, `make up` recrée, `make collecte-run` écrit dans les vraies tables, `parallelism=2`, `make test-tout`, `learnings.md`, `charger` sans `unlink` et purge confirmée par le contenu, mutations d'une ligne dans une copie hors dépôt (conteneur jetable), test de transmission du jeton, règle de fenêtre (`ingestion/` hors `tests/` et `airflow/dags/` en :01 à :14 puis hors run en cours ; `ingestion/tests/` hors :00, :15, :30, :45 et hors run en cours).
