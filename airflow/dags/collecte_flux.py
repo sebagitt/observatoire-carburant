@@ -85,45 +85,15 @@ def collecte_flux():
 
     @task
     def charger(lot: dict) -> dict:
-        import pandas as pd
+        # Les fichiers du lot ne sont plus supprimés ici (retry sans effet) : voir ingestion/lots.py et sa purge.
+        from ingestion.db import EtatsInstablesError
+        from ingestion.lots import LotAbsentError, charger_lot
 
-        from ingestion.db import (
-            EtatsInstablesError,
-            charger_etats,
-            charger_prix,
-            connecter,
-            ensure_schema,
-            journaliser_passage,
-        )
-
-        collecte_ts = datetime.fromisoformat(lot["collecte_ts"])
-        run_planifie = _run_planifie()
-        conn = connecter()
         try:
-            ensure_schema(conn)
-            compteurs = {"prix": charger_prix(conn, pd.read_parquet(lot["chemin"]), collecte_ts)}
-            LOG.info("Prix : %s", compteurs["prix"])
-            if compteurs["prix"]["conflits_prix"]:
-                LOG.warning("%d prix corrigés à la source sans nouvelle maj (ignorés)", compteurs["prix"]["conflits_prix"])
-            try:
-                compteurs["etats"] = charger_etats(conn, pd.read_parquet(lot["chemin_etat"]), collecte_ts)
-            except EtatsInstablesError as erreur:
-                # Les prix sont déjà chargés ; on ne réessaie pas, le problème est dans la source.
-                journaliser_passage(collecte_ts, run_planifie, compteurs["prix"]["lot"], compteurs["prix"]["inserees"], None)
-                raise AirflowFailException(str(erreur)) from erreur
-            LOG.info("États : %s", compteurs["etats"])
-            journaliser_passage(
-                collecte_ts,
-                run_planifie,
-                compteurs["prix"]["lot"],
-                compteurs["prix"]["inserees"],
-                compteurs["etats"]["changees"],
-            )
-        finally:
-            conn.close()
-        Path(lot["chemin"]).unlink(missing_ok=True)
-        Path(lot["chemin_etat"]).unlink(missing_ok=True)
-        return compteurs
+            return charger_lot(lot, run_planifie=_run_planifie())
+        except (EtatsInstablesError, LotAbsentError) as erreur:
+            # Pas de retry : le problème est dans la source (états instables) ou le lot est introuvable.
+            raise AirflowFailException(str(erreur)) from erreur
 
     charger(valider(extraire()))
 
