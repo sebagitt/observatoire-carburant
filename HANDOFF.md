@@ -19,7 +19,7 @@ J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 
 - Databricks (catalogue `workspace`) : schémas `carburant_bronze`, `carburant_silver`, `carburant_gold` et Volume `carburant_bronze.depot` créés le 06/11. Les 7 schémas existants (`bronze`, `silver`, `gold`, `ci_silver`, `ci_gold`, `default`, `information_schema`) sont inchangés. Token valide jusqu'au 2027-06-17 (information de l'utilisateur).
 - Airflow : `AIRFLOW__CORE__PARALLELISM=2` (commit `0695b7c`). Métadonnées d'Airflow recréées le 06/11 à 13:00 (historique des runs avant cette heure perdu).
 - Pile EnergiScope : projet terminé et publié, ses 7 conteneurs sont à `restart=no` et arrêtés. `make reprise` avertit si une autre pile compose tourne.
-- Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261106T130019Z.dump` (avant la recréation d'airflow), `collecte_20261105T143645Z.dump`. Aucun `pg_dump` plus récent : en faire un avant toute recréation.
+- Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261108T145530Z.dump` (6 974 655 octets, UTC), pris à l'arrêt propre du 08/11 ; `collecte_20261106T130019Z.dump` (avant la recréation d'airflow) ; `collecte_20261105T143645Z.dump`. Faire un `pg_dump` frais avant toute recréation.
 - Pas d'hôte 24/7 : la collecte s'arrête avec le projet (jusqu'à J15 plus 7 jours), à écrire dans le README.
 - Fiches : `docs/fiches-source/carburants.md` (mise à jour du 08/11), `cog.md`, `filosofi.md`, `sirene.md`.
 - Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 14 entrées amorcées à la clôture de J3, cause étiquetée établie, hypothèse ou inconnue). Détail du jour : `docs/journal/J3.md` (ignoré).
