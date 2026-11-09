@@ -189,3 +189,16 @@ def test_purge_refuse_un_lot_dont_une_station_existe_avec_un_autre_hash(conn, tm
     assert bilan["supprimes"] == []
     assert "états 4/5" in bilan["refuses"][HORODATAGE]
     assert (tmp_path / f"etat_{HORODATAGE}.parquet").exists()
+
+
+@pytest.mark.parametrize("manquant", ["prix", "etat"])
+def test_purge_refuse_un_lot_incomplet_avec_la_bonne_raison(conn, tmp_path, manquant):
+    lot = ecrire_lot(tmp_path)
+    charger_en_base(conn, lot)  # contenu confirmé en base
+    (tmp_path / f"{manquant}_{HORODATAGE}.parquet").unlink()  # un seul fichier reste
+
+    bilan = purger_lots(conn, tmp_path, maintenant=MAINTENANT)
+
+    assert bilan["supprimes"] == []
+    assert "incomplet" in bilan["refuses"][HORODATAGE]
+    assert lire_journal(tmp_path) == []
