@@ -518,3 +518,8 @@ def test_ko_si_le_volume_n_existe_pas_apres_le_bootstrap():
     client, se = faux_client(sans_volume=True)
     code, sorties = lancer(client)
     assert code == 1 and "KO : Volume carburant_bronze.depot absent" in "\n".join(sorties)
+
+
+def test_authentification_transmet_le_jeton_a_l_enfant():
+    verif = "import os; raise SystemExit(0 if os.environ.get('DATABRICKS_TOKEN') == 'jeton-factice-123' else 2)"
+    assert controler_authentification(ENV, commande=enfant(verif)) == "OK authentification"
