@@ -161,3 +161,17 @@ def test_purge_supprime_un_lot_confirme_de_plus_de_48_h_et_journalise(conn, tmp_
     assert entree["lot"] == HORODATAGE and entree["confirme"] is True
     assert (entree["prix_lignes"], entree["prix_retrouvees"]) == (5, 5)
     assert (entree["etats_lignes"], entree["etats_retrouves"]) == (5, 5)
+
+
+def test_purge_refuse_un_lot_dont_un_prix_existe_avec_une_autre_maj(conn, tmp_path):
+    lot = ecrire_lot(tmp_path)
+    charger_en_base(conn, lot)  # base : 5 prix (gazole), tous avec maj 08:00
+    nouveau = prix()
+    nouveau.loc[0, "maj"] = pd.Timestamp("2026-10-20T09:00:00Z")  # même station et carburant, maj jamais stockée
+    nouveau.to_parquet(tmp_path / f"prix_{HORODATAGE}.parquet", index=False)
+
+    bilan = purger_lots(conn, tmp_path, maintenant=MAINTENANT)
+
+    assert bilan["supprimes"] == []
+    assert "prix 4/5" in bilan["refuses"][HORODATAGE]
+    assert (tmp_path / f"prix_{HORODATAGE}.parquet").exists()
