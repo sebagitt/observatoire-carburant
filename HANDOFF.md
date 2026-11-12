@@ -1,5 +1,38 @@
 # HANDOFF : fin de séance du 2026-11-09, dernière mesure à 16:31 (J4 clos sur le correctif de charger, la purge, les mutations et les tests ; chargement vers Databricks reporté en J5)
+## 0. Mise à jour du 2026-11-12, fin du 1er jour de J5 (à lire en premier)
 
+### Incident du garde-fou des états (résolu par contournement)
+- Après environ 69 h d'arrêt, `charger` a échoué à chaque run (3 053 à 3 063 stations sur 9 832, seuil 30 %) : prix chargés, états non écrits.
+- Cause établie (journaux, code, Parquet) : écart cumulé avec une référence figée, ruptures 17,4 % plus une révision ponctuelle des coordonnées par la source (1 425 stations, une seule marche, cause inconnue). Le garde-fou n'a pas de sortie après un long arrêt.
+- Contournement : simulation à seuil 0, puis `charger_etats(..., max_part_changee=0.35)` sur le lot de 15:30:02 UTC : 3 063 lignes insérées. `make reprise` OK ensuite (états à 24 153 au run de 15:45 UTC).
+- À rejouer si le cas se reproduit. Refonte du garde-fou (comparaison au lot précédent) hors J5.
+
+### Décisions J5 (validées le 12/11)
+- Client : `databricks-sdk==0.156.0` (la 0.162.0 exige `certifi>=2026.10.19`, les contraintes d'Airflow 3.0.6 imposent 2025.8.3). Venv aligné, 73 tests verts.
+- Chargement : `COPY INTO` avec liste explicite de fichiers vers `carburant_bronze`. Fenêtres d'une heure UTC, semi-ouvertes, closes 2 h après leur fin. Curseur dans la base `collecte`. Parquet en mémoire. DAG quotidien, `catchup=False`, ajouté en dernier.
+- Une seule recréation d'airflow en fin de J5 (pg_dump frais, base de métadonnées neuve, connexion `AIRFLOW_CONN_DATABRICKS`, port 8081 sur 127.0.0.1), accord à redemander.
+- Hors J5 : backfill annuel, purge, `airflow/tests`, refonte du garde-fou, dbt.
+
+### Fait ce jour (commits locaux, rien poussé)
+- `ingestion/fenetres.py` (fenêtres, noms de fichiers).
+- `ingestion/export_curseur.py` et `ingestion/sql_export/export_curseur.sql` : DDL volontairement hors de `sql/` pour ne pas être créé dans la vraie base par `ensure_schema` (test de garde). Table `export_curseur` non créée dans la vraie base.
+- `ingestion/export_flux.py` : `exporter_fenetre` (Parquet en mémoire, `etat::text`).
+- `ingestion/chargement_databricks.py` : noms validés, chemins du Volume, `sql_copy_into`, `sql_creer_table`, envoi. Aucun appel réseau à ce jour.
+- Tests : conteneur 222 passés et 1 ignoré, hôte 73. Mutations vues rouges : bornes, `avancer_curseur`, liste exacte de fichiers, motif des noms, placement du DDL.
+
+### Prochaines étapes (jour 2)
+1. Premier contact réel Databricks (accord explicite) : créer les tables bronze, envoyer une fenêtre minuscule, `COPY INTO`, rejeu pour l'idempotence. Points non vérifiés : `FILES` avec `FROM (SELECT ... _metadata ...)`, noms relatifs au dossier source, colonnes de traçabilité.
+2. Créer la table `export_curseur` dans la vraie base (accord), initialiser le curseur.
+3. Orchestration de l'export (fonction qui boucle sur les fenêtres closes, contrôle des comptes, avance du curseur).
+4. DAG de chargement (imports du SDK dans les fonctions), puis recréation unique si le temps le permet.
+5. Makefile : ajouter `test_chargement_databricks.py` à `test-bootstrap` (commit `build:` séparé).
+6. À décider : index sur `station_etat_flux.collecte_ts`, pas encore nécessaire.
+
+### Rappels
+- Push en attente : `git status -sb` indiquera `ahead` ; contrôles du HANDOFF section 1 avant tout push, aucun push sans accord.
+- PowerShell : here-string `@' ... '@` envoyé par pipe vers `docker compose run --rm --no-deps -T ... airflow bash -c "python -"`. Guillemets doubles internes retirés par PowerShell.
+- La collecte est en pause ce soir : `make reprise` demain, comparer les identifiants.
+- 
 ## 1. Tâche suivante : prochaine séance, dans cet ordre
 
 1. `make reprise`. Premier verdict EN ATTENTE possible (normal), relancer au quart d'heure suivant. Comparer les identifiants de conteneur (section 2) avant et après : ils doivent être identiques, aucun `Recreate` dans la sortie. Après un arrêt, attendre un rattrapage (mesures : après environ 46 h d'arrêt, 10 737 prix et 1 266 états changés, soit 12,9 % des environ 9 800 stations ; après 22 h, 14 719 prix et 1 222 états ; après environ 18 h, au 08/11 à 15:00, 7 370 prix et 803 états, information de l'utilisateur).
