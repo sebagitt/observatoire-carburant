@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-bronze charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -46,6 +46,20 @@ bootstrap-controles:
 
 bootstrap:
 	"$(VENV_PYTHON)" -m ingestion.bootstrap_databricks --executer
+
+# Chargement du bronze Databricks par un conteneur jetable (SDK installé à la volée : voir scripts/charger_bronze.sh).
+# Pour cette seule cible, make inclut .env et exporte les quatre noms DATABRICKS_* ; la recette ne cite aucune valeur
+# (docker reçoit -e NOM sans valeur). MSYS_NO_PATHCONV évite la conversion des chemins de conteneur sous Git Bash.
+#   make charger-bronze ARGS="--table prix_flux --max-fenetres 48 --max-appels 1"
+ifneq ($(filter charger-bronze,$(MAKECMDGOALS)),)
+-include .env
+export DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_CATALOG DATABRICKS_WAREHOUSE_ID
+export PYTHONUTF8 := 1
+export MSYS_NO_PATHCONV := 1
+endif
+
+charger-bronze:
+	docker compose run --rm --no-deps -T -e DATABRICKS_HOST -e DATABRICKS_TOKEN -e DATABRICKS_CATALOG -e DATABRICKS_WAREHOUSE_ID -v ./scripts:/scripts:ro -w /opt/airflow/project airflow bash /scripts/charger_bronze.sh $(ARGS)
 
 collecte-run:
 	docker compose exec airflow airflow dags test collecte_flux
