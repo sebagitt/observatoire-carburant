@@ -8,7 +8,14 @@ models:
         description: Clé de substitution (station_id, carburant, maj).
         data_tests: [unique, not_null]
       - name: station_id
-        data_tests: [not_null]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_carburants__station_etats')
+                field: station_id
+              config:
+                severity: warn
       - name: carburant
         description: Valeurs mesurées le 16/11, en minuscules (aucune normalisation).
         data_tests:
@@ -50,6 +57,68 @@ models:
           config:
             severity: warn
 
+  - name: stg_carburants__station_etats
+    description: Versions d'état des stations, une ligne par (station, collecte_ts), champs du JSON etat extraits et typés. Horodatages en UTC.
+    columns:
+      - name: station_etat_id
+        description: Clé de substitution (station_id, collecte_ts).
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_tests: [not_null]
+      - name: collecte_ts
+        description: Heure du passage de collecte où l'état a changé, UTC.
+        data_tests: [not_null]
+      - name: etat_hash
+        data_tests: [not_null]
+      - name: code_postal
+        description: Clé cp, chaîne (zéro de tête gardé).
+      - name: code_departement
+        description: Le flux instantané ne contient aucun code INSEE de commune (mesure du 16/11) ; 24 lignes NULL mesurées.
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: latitude
+        description: Clé latitude divisée par 100 000 (chaîne entière ou décimale), en degrés ; égale à geom.lat (écart 0 mesuré).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              name: latitude_metropole_corse
+              arguments:
+                min_value: 41.0
+                max_value: 51.5
+              config:
+                severity: warn
+      - name: longitude
+        description: Clé longitude divisée par 100 000, en degrés.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              name: longitude_metropole_corse
+              arguments:
+                min_value: -5.5
+                max_value: 10.0
+              config:
+                severity: warn
+      - name: type_route_code
+        description: Clé pop. A autoroute, R route (hypothèse, non vu dans la documentation).
+      - name: automate_24_24
+        description: Clé horaires_automate_24_24 ; Oui donne true, Non donne false, toute autre valeur NULL.
+      - name: horaires_json
+        description: JSON brut des horaires (exploité en J7).
+      - name: services_json
+        description: Liste JSON brute des services (clé services_service).
+      - name: ruptures_json
+        description: JSON brut des ruptures (12 colonnes typées en J7).
+      - name: carburants_rupture_definitive_liste
+        description: Liste brute, séparateur point-virgule.
+      - name: carburants_rupture_temporaire_liste
+        description: Liste brute, séparateur point-virgule.
+      - name: fichier_source
+        description: Fichier Parquet chargé dans le bronze (traçabilité).
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+
 unit_tests:
   - name: test_prix_maj_ts_identique_a_maj
     description: maj passe telle quelle dans prix_maj_ts (aucune conversion de fuseau) ; renommage et type du prix.
@@ -63,3 +132,45 @@ unit_tests:
       rows:
         - {station_id: 1000001, carburant: gazole, prix_maj_ts: "2026-11-16 10:19:44", prix_eur_litre: 1.789, collecte_ts: "2026-11-16 10:30:03", fichier_source: "dbfs:/f1.parquet", charge_ts: "2026-11-16 12:20:31"}
         - {station_id: 1000002, carburant: e85, prix_maj_ts: "2026-03-29 01:30:00", prix_eur_litre: 0.659, collecte_ts: "2026-03-29 02:15:00", fichier_source: "dbfs:/f2.parquet", charge_ts: "2026-03-30 12:20:31"}
+  - name: test_coordonnees_divisees_par_100000
+    description: latitude et longitude de la source sont des chaînes multipliées par 100 000, entières ou décimales ; une valeur non numérique donne NULL (try_cast).
+    model: stg_carburants__station_etats
+    given:
+      - input: source('carburant_bronze', 'station_etat_flux')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", etat_hash: h1, etat: '{"latitude": "4139100", "longitude": "915000"}'}
+          - {station_id: 2, collecte_ts: "2026-11-16 10:00:00", etat_hash: h2, etat: '{"latitude": "4620788.7144338", "longitude": "523712.13755033"}'}
+          - {station_id: 3, collecte_ts: "2026-11-16 10:00:00", etat_hash: h3, etat: '{"latitude": "abc", "longitude": "-10000"}'}
+    expect:
+      rows:
+        - {station_id: 1, latitude: 41.391, longitude: 9.15}
+        - {station_id: 2, latitude: 46.207887144338, longitude: 5.237121375503301}
+        - {station_id: 3, latitude: null, longitude: -0.1}
+
+  - name: test_automate_24_24_comparaison_exacte
+    description: Oui donne true, Non donne false ; toute autre valeur (oui en minuscules, NULL) donne NULL.
+    model: stg_carburants__station_etats
+    given:
+      - input: source('carburant_bronze', 'station_etat_flux')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", etat_hash: h1, etat: '{"horaires_automate_24_24": "Oui"}'}
+          - {station_id: 2, collecte_ts: "2026-11-16 10:00:00", etat_hash: h2, etat: '{"horaires_automate_24_24": "Non"}'}
+          - {station_id: 3, collecte_ts: "2026-11-16 10:00:00", etat_hash: h3, etat: '{"horaires_automate_24_24": "oui"}'}
+          - {station_id: 4, collecte_ts: "2026-11-16 10:00:00", etat_hash: h4, etat: '{"horaires_automate_24_24": null}'}
+    expect:
+      rows:
+        - {station_id: 1, automate_24_24: true}
+        - {station_id: 2, automate_24_24: false}
+        - {station_id: 3, automate_24_24: null}
+        - {station_id: 4, automate_24_24: null}
+
+  - name: test_cle_absente_donne_null
+    description: une clé absente du JSON donne une colonne à NULL, sans erreur ; les clés présentes sont extraites.
+    model: stg_carburants__station_etats
+    given:
+      - input: source('carburant_bronze', 'station_etat_flux')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", etat_hash: h1, etat: '{"adresse": "1 rue de la Gare", "cp": "01000"}'}
+    expect:
+      rows:
+        - {station_id: 1, adresse: "1 rue de la Gare", code_postal: "01000", ville: null, code_departement: null, latitude: null, longitude: null, type_route_code: null, automate_24_24: null, services_json: null, ruptures_json: null}
