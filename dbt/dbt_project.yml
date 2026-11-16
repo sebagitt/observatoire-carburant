@@ -24,9 +24,11 @@ flags:
 # Les schémas bronze, silver, gold, ci_* et default appartiennent à un autre projet : jamais utilisés (garde pytest).
 models:
   observatoire_carburant:
+    +group: carburants
     staging:
       +schema: carburant_silver
       +materialized: view
+      +access: private
 
 # Par défaut, les tests ont le schéma personnalisé dbt_test__audit (lignes en échec si store_failures) :
 # avec la macro, ce serait workspace.dbt_test__audit, hors carburant_*. Rattachés à carburant_silver.

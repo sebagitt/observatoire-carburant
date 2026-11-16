@@ -1,0 +1,7 @@
+version: 2
+
+# Un seul groupe pour tout le projet : les modèles privés (staging) ne sont référençables que depuis ce groupe.
+groups:
+  - name: carburants
+    owner:
+      name: Sébastien Guitton

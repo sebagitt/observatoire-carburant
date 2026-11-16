@@ -3,8 +3,9 @@
 Les schémas bronze, silver, gold, ci_silver, ci_gold et default du catalogue appartiennent à un autre
 projet (EnergiScope) : aucun nœud de ce projet ne doit y écrire ni y lire.
 
-Deux tests :
+Trois tests :
 - projet réel : après dbt parse, chaque nœud et chaque source a un schéma qui commence par carburant_ ;
+- projet réel : tout modèle sous models/staging/ est privé (access: private, groupe carburants) ;
 - sonde : copie du projet avec trois modèles factices, schémas attendus exacts (protège la macro
   generate_schema_name : sans elle, dbt produirait carburant_silver_carburant_silver).
 
@@ -84,6 +85,19 @@ def test_projet_reel_tous_les_schemas_commencent_par_carburant(tmp_path):
         if not schema.startswith(PREFIXE) or schema in SCHEMAS_INTERDITS
     }
     assert fautifs == {}
+
+
+def test_projet_reel_staging_prive(tmp_path):
+    """Tout modèle sous models/staging/ a access == private (convention du projet)."""
+    manifest = parser(PROJET, tmp_path)
+    staging = {
+        n["name"]: n["access"]
+        for n in manifest["nodes"].values()
+        if n["resource_type"] == "model"
+        and n["original_file_path"].replace("\\", "/").startswith("models/staging/")
+    }
+    assert staging, "aucun modèle de staging trouvé : la garde passerait à vide"
+    assert {nom: acces for nom, acces in staging.items() if acces != "private"} == {}
 
 
 def test_sonde_schemas_exacts(tmp_path):
