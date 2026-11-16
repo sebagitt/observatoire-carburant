@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-bronze lire-bronze dbt charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap test-dbt-garde bootstrap bootstrap-controles charger-bronze lire-bronze dbt charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -19,7 +19,12 @@ reprise:
 # make test : tests du conteneur. make test-tout : conteneur et hôte (bootstrap Databricks) = critère vert de J3.
 test: test-ingestion
 
-test-tout: test-ingestion test-bootstrap
+test-tout: test-ingestion test-bootstrap test-dbt-garde
+
+# Garde des schémas dbt, sur l'hôte dans .venv-dbt : dbt parse (sans connexion, variables factices, .env non lu)
+# puis contrôle du manifest. GARDE_PROJET_DIR vise une copie du projet (mutation hors dépôt).
+test-dbt-garde:
+	".venv-dbt/Scripts/python.exe" -m pytest -q -p no:cacheprovider dbt/garde
 
 # Dans le conteneur. Les tests du bootstrap Databricks tournent sur l'hôte (make test-bootstrap) : databricks/ n'est pas monté.
 # Base de métadonnées sqlite dédiée (/tmp du conteneur) : aucun test ne peut toucher la base Postgres airflow.
