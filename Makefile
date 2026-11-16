@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-bronze lire-bronze charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap bootstrap bootstrap-controles charger-bronze lire-bronze dbt charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -67,6 +67,23 @@ charger-bronze:
 
 lire-bronze:
 	docker compose run --rm --no-deps -T -e DATABRICKS_HOST -e DATABRICKS_TOKEN -e DATABRICKS_CATALOG -e DATABRICKS_WAREHOUSE_ID -v ./scripts:/scripts:ro -w /opt/airflow/project airflow bash /scripts/lire_bronze.sh $(ARGS)
+
+# dbt sur l'hôte, dans .venv-dbt (Python 3.12) : py -3.12 -m venv .venv-dbt puis .venv-dbt/Scripts/pip install -r requirements-dbt.txt
+# Pour cette seule cible, make inclut .env et exporte les quatre DATABRICKS_* (lus par dbt/profiles.yml via env_var) ;
+# DBT_PROFILES_DIR et DBT_PROJECT_DIR pointent sur dbt/. La recette ne cite aucune valeur.
+#   make dbt ARGS="debug"
+#   make dbt ARGS="build --select staging"      (jamais de run ni de build sans --select)
+ifneq ($(filter dbt,$(MAKECMDGOALS)),)
+-include .env
+export DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_CATALOG DATABRICKS_WAREHOUSE_ID
+export PYTHONUTF8 := 1
+export DBT_PROFILES_DIR := dbt
+export DBT_PROJECT_DIR := dbt
+endif
+
+DBT = .venv-dbt/Scripts/dbt.exe
+dbt:
+	"$(DBT)" $(ARGS)
 
 collecte-run:
 	docker compose exec airflow airflow dags test collecte_flux

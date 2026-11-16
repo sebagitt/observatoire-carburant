@@ -1,0 +1,13 @@
+# Profil dbt versionné : aucune valeur, uniquement des env_var. Les quatre DATABRICKS_* viennent de .env par make dbt.
+# host : un éventuel préfixe https:// et une barre finale sont retirés (le connecteur attend un nom d'hôte).
+observatoire_carburant:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: "{{ env_var('DATABRICKS_CATALOG') }}"
+      schema: carburant_silver
+      host: "{{ env_var('DATABRICKS_HOST') | replace('https://', '') | trim('/') }}"
+      http_path: "/sql/1.0/warehouses/{{ env_var('DATABRICKS_WAREHOUSE_ID') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 2

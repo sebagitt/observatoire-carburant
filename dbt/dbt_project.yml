@@ -1,0 +1,29 @@
+name: 'observatoire_carburant'
+version: '1.0.0'
+config-version: 2
+
+# Profil versionné dans dbt/profiles.yml (uniquement des env_var) ; DBT_PROFILES_DIR est posé par make dbt.
+profile: 'observatoire_carburant'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+flags:
+  send_anonymous_usage_stats: false
+
+# Schémas : la macro generate_schema_name utilise le schéma personnalisé tel quel.
+# Staging et intermediate dans carburant_silver ; marts plus tard dans carburant_gold.
+# Les schémas bronze, silver, gold, ci_* et default appartiennent à un autre projet : jamais utilisés (garde pytest).
+models:
+  observatoire_carburant:
+    staging:
+      +schema: carburant_silver
+      +materialized: view
