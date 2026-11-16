@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: stg_carburants__prix
+    description: Prix du bronze renommés et typés. Une ligne par (station, carburant, maj). Horodatages en UTC.
+    columns:
+      - name: prix_id
+        description: Clé de substitution (station_id, carburant, maj).
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_tests: [not_null]
+      - name: carburant
+        description: Valeurs mesurées le 16/11, en minuscules (aucune normalisation).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [gazole, e10, sp98, e85, sp95, gplc]
+      - name: prix_maj_ts
+        description: maj de la source, UTC, sans conversion de fuseau.
+        data_tests: [not_null]
+      - name: prix_eur_litre
+        description: Prix en euros par litre, DECIMAL(6,3).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              name: prix_eur_litre_strictement_positif
+              arguments:
+                min_value: 0
+                inclusive: false
+          - dbt_utils.accepted_range:
+              name: prix_eur_litre_plausible
+              arguments:
+                min_value: 0.5
+                max_value: 3.5
+              config:
+                severity: warn
+      - name: collecte_ts
+        description: Heure du passage de collecte, UTC.
+        data_tests: [not_null]
+      - name: fichier_source
+        description: Fichier Parquet chargé dans le bronze (traçabilité).
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+    data_tests:
+      - dbt_utils.expression_is_true:
+          name: prix_maj_avant_collecte
+          arguments:
+            expression: "prix_maj_ts <= collecte_ts"
+          config:
+            severity: warn
+
+unit_tests:
+  - name: test_prix_maj_ts_identique_a_maj
+    description: maj passe telle quelle dans prix_maj_ts (aucune conversion de fuseau) ; renommage et type du prix.
+    model: stg_carburants__prix
+    given:
+      - input: source('carburant_bronze', 'prix_flux')
+        rows:
+          - {station_id: 1000001, carburant: gazole, maj: "2026-11-16 10:19:44", prix: 1.789, collecte_ts: "2026-11-16 10:30:03", _fichier_source: "dbfs:/f1.parquet", _charge_ts: "2026-11-16 12:20:31"}
+          - {station_id: 1000002, carburant: e85, maj: "2026-03-29 01:30:00", prix: 0.659, collecte_ts: "2026-03-29 02:15:00", _fichier_source: "dbfs:/f2.parquet", _charge_ts: "2026-03-30 12:20:31"}
+    expect:
+      rows:
+        - {station_id: 1000001, carburant: gazole, prix_maj_ts: "2026-11-16 10:19:44", prix_eur_litre: 1.789, collecte_ts: "2026-11-16 10:30:03", fichier_source: "dbfs:/f1.parquet", charge_ts: "2026-11-16 12:20:31"}
+        - {station_id: 1000002, carburant: e85, prix_maj_ts: "2026-03-29 01:30:00", prix_eur_litre: 0.659, collecte_ts: "2026-03-29 02:15:00", fichier_source: "dbfs:/f2.parquet", charge_ts: "2026-03-30 12:20:31"}
