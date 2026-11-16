@@ -27,3 +27,9 @@ models:
     staging:
       +schema: carburant_silver
       +materialized: view
+
+# Par défaut, les tests ont le schéma personnalisé dbt_test__audit (lignes en échec si store_failures) :
+# avec la macro, ce serait workspace.dbt_test__audit, hors carburant_*. Rattachés à carburant_silver.
+data_tests:
+  observatoire_carburant:
+    +schema: carburant_silver

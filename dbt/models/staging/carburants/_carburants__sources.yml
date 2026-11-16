@@ -1,0 +1,55 @@
+version: 2
+
+# Bronze Databricks, chargé une fois par jour par le DAG chargement_bronze (20 12 * * * UTC).
+# Freshness sur collecte_ts (fraîcheur de la donnée, pas du chargement). Calcul des seuils (16/11) :
+# marge de 2 h (ingestion/fenetres.py), donc max(collecte_ts) vers J 09:45 après le run de 12:20 ;
+# âge maximal normal 26 h 36, 27 h 01 avec timeout et retry : warn à 28 h ;
+# deux chargements manqués : 51 h 01 : error à 52 h. Un error le lundi après un arrêt du week-end est attendu.
+# Syntaxe dbt 1.10 et plus : freshness et loaded_at_field sous config.
+
+sources:
+  - name: carburant_bronze
+    schema: carburant_bronze
+    description: Copie brute de la base de collecte (Postgres), une fenêtre d'une heure par fichier.
+    config:
+      loaded_at_field: collecte_ts
+      freshness:
+        warn_after: {count: 28, period: hour}
+        error_after: {count: 52, period: hour}
+    tables:
+      - name: prix_flux
+        description: Prix par station, carburant et date de mise à jour (une ligne par nouveau prix).
+        columns:
+          - name: station_id
+            data_tests: [not_null]
+          - name: carburant
+            data_tests: [not_null]
+          - name: maj
+            description: Mise à jour du prix par la station, UTC.
+            data_tests: [not_null]
+          - name: prix
+            data_tests: [not_null]
+          - name: collecte_ts
+            description: Heure du passage de collecte, UTC.
+            data_tests: [not_null]
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [station_id, carburant, maj]
+
+      - name: station_etat_flux
+        description: Versions d'état des stations (une ligne quand l'état change), JSON en chaîne dans etat.
+        columns:
+          - name: station_id
+            data_tests: [not_null]
+          - name: collecte_ts
+            description: Heure du passage de collecte, UTC.
+            data_tests: [not_null]
+          - name: etat_hash
+            data_tests: [not_null]
+          - name: etat
+            data_tests: [not_null]
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [station_id, collecte_ts]
