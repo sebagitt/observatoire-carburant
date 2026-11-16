@@ -1,5 +1,59 @@
 # HANDOFF : fin de séance du 2026-11-09, dernière mesure à 16:31 (J4 clos sur le correctif de charger, la purge, les mutations et les tests ; chargement vers Databricks reporté en J5)
-## 0. Mise à jour du 2026-11-12, fin du 1er jour de J5 (à lire en premier)
+## 0. Mise à jour du 2026-11-13, fin du 2e jour de J5 (à lire en premier)
+
+### Reprise de session (dans cet ordre)
+1. `make reprise`, puis comparer les identifiants des conteneurs avec ceux de la section 2 (airflow `6bc98c61...`, postgres `9b3b0a0f...`). Après un arrêt, un rattrapage est attendu ; si `charger` échoue avec le garde-fou des 30 %, voir l'incident du 12/11 dans le bloc 0b.
+2. `git status -sb` et `git log origin/main..HEAD --oneline` : relever l'état réel avant toute consigne qui cite des étapes déjà faites.
+3. Reprendre le rattrapage de `station_etat_flux` (ci-dessous), puis les petits changements de `charger_bronze`, puis le DAG.
+4. Ne jamais lire `.env`, ne jamais afficher `DATABRICKS_*`.
+
+### État du chargement vers Databricks (carburant_bronze)
+- Chaîne prouvée en réel : export Parquet par fenêtre, envoi dans le Volume, `COPY INTO` avec liste exacte de fichiers, comptage de contrôle, curseur dans la table `export_curseur` (base `collecte`).
+- `prix_flux` : rattrapage terminé jusqu'au 13/11 12:00 UTC (dernière fenêtre close), 173 874 lignes des deux côtés, 42 fichiers distincts. La fenêtre du 09/11 de 10:00 à 11:00, chargée à la main le 13/11, est rejouée sans doublon.
+- `station_etat_flux` : curseur au 29/10 13:00 UTC, plage égale à Postgres (10 003 lignes), total Databricks 10 171 (les 168 lignes de la fenêtre du 09/11 sont au-delà du curseur). Reste environ 35 fenêtres non vides et 15 400 lignes (mesure du 13/11 à 15:25, à recalculer par `COUNT` Postgres) : lots 4 (9 fenêtres), 7, 8, 9 et 11.
+- Curseurs actuels dans `export_curseur` : prix_flux au 2026-11-13 12:00 UTC (mis à jour 14:21 UTC), station_etat_flux au 2026-10-29 13:00 UTC (mis à jour 14:24 UTC).
+- Commande : `make charger-bronze ARGS="--table station_etat_flux --max-fenetres 48 --max-appels 3"`. Précaution de lancement (pas une règle technique) : entre :02 et :08 d'un quart d'heure pour un lot qui contient des données, entre :02 et :11 pour un lot vide.
+- Mesures : démarrage à froid de l'entrepôt 10,6 s et 11,0 s (deux observations) ; environ 0,9 à 1,5 s par fenêtre vide ; une fenêtre de 25 067 lignes passe sans problème ; mémoire d'airflow stable à 2,3 Gio pendant les lots.
+
+### Constats Databricks
+- `execute_statement` sur un entrepôt arrêté est refusé (`BAD_REQUEST`) : il faut `warehouses.start` puis attendre `RUNNING` (`assurer_entrepot` le fait). Cause : hypothèse, non établie.
+- Littéral `TIMESTAMP '...+00:00'` accepté, fuseau traité (806 lignes avec des bornes en heure de Paris converties).
+- `COPY INTO` : `_metadata.file_path` dans le `SELECT` et `FILES` avec `FROM (SELECT ...)` fonctionnent ; les noms de `FILES` sont relatifs au dossier source ; `_fichier_source` porte le préfixe `dbfs:`.
+- Un fichier déjà chargé est ignoré par `COPY INTO` (documentation lue) : la comparaison des comptes de plage est le garde-fou contre une divergence silencieuse.
+- Le Parquet d'une même fenêtre est identique à l'octet (vérifié à plusieurs heures d'intervalle).
+
+### Méthode de lancement réel
+- `make charger-bronze` : inclut `.env` pour cette seule cible, passe les quatre `DATABRICKS_*` par nom au conteneur jetable (aucune valeur dans la commande), installe `databricks-sdk==0.156.0` dans ce conteneur (environ 3 s) avec les contraintes d'Airflow 3.0.6, puis lance `python -m ingestion.charger_bronze`. Aucune valeur n'est affichée.
+- `databricks-sdk` 0.162.0 exige `certifi>=2026.10.19`, alors que les contraintes d'Airflow 3.0.6 imposent 2025.8.3 : seule la 0.156.0 passe.
+- Environnement Python de l'image : `sys.prefix` vaut `/home/airflow/.local` ; `pip install --user` y est refusé.
+- Règle de contrôle : avant chaque lot, lire le total de la table et calculer l'attendu à partir du total mesuré plus le `COUNT` Postgres de la plage. Ne jamais recopier un attendu (erreur du 13/11 : les 33 180 lignes du 23/10 avaient été oubliées).
+- Scripts de lancement hors dépôt dans un dossier scratch local, chemin non versionné. Le dépôt est la source de vérité : ne pas en dépendre.
+
+### À faire ensuite
+1. Finir `station_etat_flux` (ci-dessus).
+2. Petits changements de `charger_bronze` : afficher les noms de fichiers envoyés (troncature au-delà de 10 noms) et la durée rendue par `assurer_entrepot` (objet de suivi optionnel). Tests et mutations décrits dans le rapport de CC du 13/11.
+3. Optimisation du comptage seulement si le coût le justifie : une requête par plage avec `GROUP BY date_trunc('hour', collecte_ts)`.
+4. DAG de chargement (imports du SDK dans les fonctions, `catchup=False`, `max_active_runs=1`) qui démarre l'entrepôt avec `assurer_entrepot` avant tout SQL, puis la recréation unique d'airflow (`pg_dump` frais, SDK dans l'image, base de métadonnées neuve, connexion `AIRFLOW_CONN_DATABRICKS`, port 8081 sur 127.0.0.1), accord à redemander.
+5. Makefile : ajouter `test_chargement_databricks.py`, `test_adaptateurs_databricks.py` et `test_charger_bronze.py` aux tests de l'hôte (commit `build:` séparé).
+6. À décider : index sur `station_etat_flux.collecte_ts` si l'export ralentit.
+7. Mettre à jour les sections 1 et 2 de ce fichier (tête de `origin/main`, nombre de tests, identifiants, mémoire).
+
+### Tests et commits
+- `make test-tout` : conteneur 326 passés et 2 ignorés, hôte 73 passés (15:28, code retour 0).
+- Commits de J5 poussés le 2026-11-13 jusqu'à b4f1a1a :
+  - `b4f1a1a` build: cible make charger-bronze et script de lancement
+  - `a5aaa05` feat(ingestion): commande de chargement du bronze
+  - `fa99799` feat(ingestion): adaptateurs Databricks pour l'orchestration
+  - `05b3531` feat(ingestion): orchestration de l'export par fenêtres
+  - `4323122` docs(handoff): fin du 1er jour de J5
+  - `df7149b` feat(ingestion): couche Databricks du chargement (SQL, chemins, envoi)
+  - `68f2c0e` feat(ingestion): export d'une fenêtre en Parquet mémoire
+  - `7a8ec03` feat(ingestion): table et fonctions de curseur d'export
+  - `aae57b0` feat(ingestion): fenêtres d'export à bornes semi-ouvertes
+  - `e2ac6da` build: databricks-sdk 0.156.0 (contraintes d'Airflow 3.0.6)
+  - `4de9de5` docs(handoff): fin de J4
+
+## 0b. Archive du 2026-11-12, fin du 1er jour de J5 (incident du garde-fou et décisions J5 ; certaines lignes sont périmées, le bloc 0 fait foi)
 
 ### Incident du garde-fou des états (résolu par contournement)
 - Après environ 69 h d'arrêt, `charger` a échoué à chaque run (3 053 à 3 063 stations sur 9 832, seuil 30 %) : prix chargés, états non écrits.
@@ -20,19 +74,9 @@
 - `ingestion/chargement_databricks.py` : noms validés, chemins du Volume, `sql_copy_into`, `sql_creer_table`, envoi. Aucun appel réseau à ce jour.
 - Tests : conteneur 222 passés et 1 ignoré, hôte 73. Mutations vues rouges : bornes, `avancer_curseur`, liste exacte de fichiers, motif des noms, placement du DDL.
 
-### Prochaines étapes (jour 2)
-1. Premier contact réel Databricks (accord explicite) : créer les tables bronze, envoyer une fenêtre minuscule, `COPY INTO`, rejeu pour l'idempotence. Points non vérifiés : `FILES` avec `FROM (SELECT ... _metadata ...)`, noms relatifs au dossier source, colonnes de traçabilité.
-2. Créer la table `export_curseur` dans la vraie base (accord), initialiser le curseur.
-3. Orchestration de l'export (fonction qui boucle sur les fenêtres closes, contrôle des comptes, avance du curseur).
-4. DAG de chargement (imports du SDK dans les fonctions), puis recréation unique si le temps le permet.
-5. Makefile : ajouter `test_chargement_databricks.py` à `test-bootstrap` (commit `build:` séparé).
-6. À décider : index sur `station_etat_flux.collecte_ts`, pas encore nécessaire.
-
 ### Rappels
 - Push en attente : `git status -sb` indiquera `ahead` ; contrôles du HANDOFF section 1 avant tout push, aucun push sans accord.
 - PowerShell : here-string `@' ... '@` envoyé par pipe vers `docker compose run --rm --no-deps -T ... airflow bash -c "python -"`. Guillemets doubles internes retirés par PowerShell.
-- La collecte est en pause ce soir : `make reprise` demain, comparer les identifiants.
-- 
 ## 1. Tâche suivante : prochaine séance, dans cet ordre
 
 1. `make reprise`. Premier verdict EN ATTENTE possible (normal), relancer au quart d'heure suivant. Comparer les identifiants de conteneur (section 2) avant et après : ils doivent être identiques, aucun `Recreate` dans la sortie. Après un arrêt, attendre un rattrapage (mesures : après environ 46 h d'arrêt, 10 737 prix et 1 266 états changés, soit 12,9 % des environ 9 800 stations ; après 22 h, 14 719 prix et 1 222 états ; après environ 18 h, au 08/11 à 15:00, 7 370 prix et 803 états, information de l'utilisateur).
