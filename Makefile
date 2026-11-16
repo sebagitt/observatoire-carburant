@@ -22,8 +22,9 @@ test: test-ingestion
 test-tout: test-ingestion test-bootstrap
 
 # Dans le conteneur. Les tests du bootstrap Databricks tournent sur l'hôte (make test-bootstrap) : databricks/ n'est pas monté.
+# Base de métadonnées sqlite dédiée (/tmp du conteneur) : aucun test ne peut toucher la base Postgres airflow.
 test-ingestion:
-	docker compose exec -w /opt/airflow/project airflow python -m pytest -q -p no:cacheprovider --ignore=ingestion/tests/test_bootstrap_databricks.py ingestion quality
+	docker compose exec -T -e AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////tmp/airflow_tests.db -w /opt/airflow/project airflow python -m pytest -q -p no:cacheprovider --ignore=ingestion/tests/test_bootstrap_databricks.py ingestion quality
 
 # Sur l'hôte, dans le venv .venv (Python 3.14.3) : python -m venv .venv puis .venv/Scripts/pip install -r requirements-databricks.txt
 VENV_PYTHON = .venv/Scripts/python.exe
