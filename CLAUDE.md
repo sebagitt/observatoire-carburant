@@ -36,3 +36,12 @@ Oublier : sorties de logs longues, essais abandonnés.
   docs/journal/learnings.md (titre : date, thème ; symptôme ; cause racine étiquetée établie, hypothèse ou inconnue ; correction et test). Jamais une cause présentée comme établie sans preuve.
 - Avant d'exécuter les consignes d'un message qui cite des étapes déjà faites, recouper avec git log et l'état réel ; en cas de doute, demander.
 - Aucun commit ni push de docs/fiches-source sans accord explicite.
+
+## Exécution et rapports (ajout du 16/11)
+- Rapports : sorties brutes sans valeur sensible ; étiquettes [fait] avec la preuve collée, [hypothèse], [non vérifié] ; liste finale de ce qui n'a pas pu être vérifié.
+- Un attendu donné par le chat n'est jamais recopié : le recalculer à partir d'une mesure.
+- Accord groupé : une liste fermée d'actions vaut accord pour ces actions seulement, dans l'ordre. Arrêt immédiat à un échec ou à un comptage qui diffère.
+- Mémoire du conteneur airflow, deux seuils distincts : alerte à 3,5 Gio (relever et chercher la cause) ; arrêt à 4 Gio (aucun nouveau lot charger-bronze).
+- Lancements réels vers Databricks : make charger-bronze seulement. Avant chaque lot : lire le total de la table, calculer l'attendu (total lu plus COUNT Postgres de la plage).
+- Aucun commit sans accord après diff montré. Aucun push sans accord explicite ; avant un push, contrôles de la section 1 du HANDOFF.
+- Un test vert ne prouve pas qu'il protège une règle : mutation d'une ligne dans une copie hors dépôt, le test doit passer du vert au rouge.
