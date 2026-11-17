@@ -1,0 +1,108 @@
+version: 2
+
+models:
+  - name: int_stations__commune
+    description: >
+      Une ligne par station de stg_carburants__station_etats, rattachée à une commune du COG var('cog_millesime') par le
+      com_arm_code du flux quotidien. Code COM ou ARM pris tel quel ; sinon parent d'un COMD ou d'un COMA (écart 6).
+      Lit stg_insee__cog_communes, pas dim_commune, pour remonter au parent (écart 9).
+    columns:
+      - name: station_id
+        data_tests: [unique, not_null]
+      - name: commune_arm_code
+        description: Rattachement fin, code COM ou ARM ; NULL si la station est absente du quotidien, sans code, ou code hors COG.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_commune')
+                field: commune_code
+              config:
+                severity: error
+      - name: commune_code
+        description: Commune parente, pour agréger au niveau commune (comparent pour un ARM, le code lui-même pour un COM).
+      - name: rattachement_source
+        description: flux_quotidien si commune_arm_code est trouvé, NULL sinon.
+      - name: departement_code_flux
+        description: code_departement du dernier état de la station (collecte_ts maximal).
+      - name: departement_code_cog
+        description: Département de commune_arm_code dans le COG.
+
+unit_tests:
+  - name: test_int_stations_absente_du_quotidien_null
+    description: une station absente du quotidien donne commune_arm_code, commune_code et rattachement_source NULL.
+    model: int_stations__commune
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", code_departement: "01"}
+          - {station_id: 2, collecte_ts: "2026-11-16 10:00:00", code_departement: "01"}
+      - input: ref('stg_carburants__station_communes')
+        rows:
+          - {station_id: 1, commune_arm_code: "01001"}
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {commune_code: "01001", commune_type: COM, commune_parent_code: null, departement_code: "01"}
+    expect:
+      rows:
+        - {station_id: 1, commune_arm_code: "01001", commune_code: "01001", rattachement_source: flux_quotidien}
+        - {station_id: 2, commune_arm_code: null, commune_code: null, rattachement_source: null}
+
+  - name: test_int_stations_comd_remplace_par_parent
+    description: un COMD (ou COMA) est remplacé par sa commune parente ; un ARM est gardé, sa commune parente dans commune_code.
+    model: int_stations__commune
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", code_departement: "01"}
+          - {station_id: 2, collecte_ts: "2026-11-16 10:00:00", code_departement: "13"}
+      - input: ref('stg_carburants__station_communes')
+        rows:
+          - {station_id: 1, commune_arm_code: "01340"}
+          - {station_id: 2, commune_arm_code: "13201"}
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {commune_code: "01015", commune_type: COM, commune_parent_code: null, departement_code: "01"}
+          - {commune_code: "01340", commune_type: COMD, commune_parent_code: "01015", departement_code: null}
+          - {commune_code: "13055", commune_type: COM, commune_parent_code: null, departement_code: "13"}
+          - {commune_code: "13201", commune_type: ARM, commune_parent_code: "13055", departement_code: "13"}
+    expect:
+      rows:
+        - {station_id: 1, commune_arm_code: "01015", commune_code: "01015", rattachement_source: flux_quotidien, departement_code_cog: "01"}
+        - {station_id: 2, commune_arm_code: "13201", commune_code: "13055", rattachement_source: flux_quotidien, departement_code_cog: "13"}
+
+  - name: test_int_stations_dernier_etat_pour_departement_flux
+    description: departement_code_flux vient de l'état au collecte_ts maximal, quel que soit l'ordre des lignes.
+    model: int_stations__commune
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", code_departement: "02"}
+          - {station_id: 1, collecte_ts: "2026-11-10 10:00:00", code_departement: "01"}
+          - {station_id: 1, collecte_ts: "2026-11-12 10:00:00", code_departement: "03"}
+      - input: ref('stg_carburants__station_communes')
+        rows:
+          - {station_id: 1, commune_arm_code: "02001"}
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {commune_code: "02001", commune_type: COM, commune_parent_code: null, departement_code: "02"}
+    expect:
+      rows:
+        - {station_id: 1, departement_code_flux: "02", departement_code_cog: "02"}
+
+  - name: test_int_stations_code_com_et_comd_donne_le_com
+    description: un code à la fois COM et COMD donne le COM et une seule ligne (écart 6, 449 codes mesurés au STOP 0).
+    model: int_stations__commune
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", code_departement: "01"}
+      - input: ref('stg_carburants__station_communes')
+        rows:
+          - {station_id: 1, commune_arm_code: "01015"}
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {commune_code: "01015", commune_type: COM, commune_parent_code: null, departement_code: "01"}
+          - {commune_code: "01015", commune_type: COMD, commune_parent_code: "01015", departement_code: null}
+    expect:
+      rows:
+        - {station_id: 1, commune_arm_code: "01015", commune_code: "01015", departement_code_cog: "01"}
