@@ -1,0 +1,141 @@
+version: 2
+
+models:
+  - name: stg_insee__cog_communes
+    description: COG des communes du millésime var('cog_millesime'), une ligne par (millésime, type, code). Un code peut être COM et COMD.
+    columns:
+      - name: commune_cle
+        description: Clé de substitution (millesime, typecom, com).
+        data_tests: [unique, not_null]
+      - name: cog_millesime
+        data_tests: [not_null]
+      - name: commune_code
+        description: Code INSEE de la commune (com), chaîne, zéro de tête et Corse (2A, 2B) gardés.
+        data_tests: [not_null]
+      - name: commune_type
+        description: typecom. COM commune, COMA associée, COMD déléguée, ARM arrondissement municipal.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [COM, COMA, COMD, ARM]
+      - name: commune_parent_code
+        description: comparent, commune de rattachement d'une COMA, COMD ou ARM ; NULL pour une COM.
+      - name: commune_nom
+        description: libelle (nom en clair avec article).
+      - name: departement_code
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_insee__cog_departements')
+                field: departement_code
+      - name: region_code
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_insee__cog_regions')
+                field: region_code
+      - name: postgres_charge_ts
+        description: Heure du chargement dans la base de collecte (Postgres).
+        data_tests: [not_null]
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [cog_millesime, commune_type, commune_code]
+
+  - name: stg_insee__cog_departements
+    description: COG des départements du millésime var('cog_millesime'), une ligne par département.
+    columns:
+      - name: departement_code
+        data_tests: [unique, not_null]
+      - name: departement_nom
+        data_tests: [not_null]
+      - name: region_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_insee__cog_regions')
+                field: region_code
+      - name: cheflieu_commune_code
+      - name: cog_millesime
+      - name: postgres_charge_ts
+        description: Heure du chargement dans la base de collecte (Postgres).
+        data_tests: [not_null]
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+        data_tests: [not_null]
+
+  - name: stg_insee__cog_regions
+    description: COG des régions du millésime var('cog_millesime'), une ligne par région.
+    columns:
+      - name: region_code
+        data_tests: [unique, not_null]
+      - name: region_nom
+        data_tests: [not_null]
+      - name: cheflieu_commune_code
+      - name: cog_millesime
+      - name: postgres_charge_ts
+        description: Heure du chargement dans la base de collecte (Postgres).
+        data_tests: [not_null]
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+        data_tests: [not_null]
+
+  - name: stg_insee__filosofi_communes
+    description: Filosofi du millésime var('filosofi_millesime'), une ligne par (geo_object, commune_code). Valeur masquée à NULL, statut gardé.
+    columns:
+      - name: filosofi_cle
+        description: Clé de substitution (geo_object, codgeo).
+        data_tests: [unique, not_null]
+      - name: filosofi_millesime
+        data_tests: [not_null]
+      - name: geo_object
+        description: COM commune, ARM arrondissement municipal.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [COM, ARM]
+      - name: commune_code
+        description: codgeo, code INSEE de la commune ou de l'arrondissement.
+        data_tests: [not_null]
+      - name: med_sl
+        description: Niveau de vie médian, euros par an ; NULL si masqué.
+      - name: med_sl_statut
+      - name: med_sl_conf
+      - name: pr_md60
+        description: Taux de pauvreté au seuil de 60 %, en pourcentage ; NULL si masqué.
+      - name: pr_md60_statut
+      - name: pr_md60_conf
+      - name: postgres_charge_ts
+        description: Heure du chargement dans la base de collecte (Postgres).
+        data_tests: [not_null]
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [geo_object, commune_code]
+
+unit_tests:
+  - name: test_cog_communes_millesime_filtre_et_renommage
+    description: seules les lignes du millésime var('cog_millesime') passent ; un code COM et COMD donne deux lignes de clés distinctes.
+    model: stg_insee__cog_communes
+    overrides:
+      vars:
+        cog_millesime: 2026
+    given:
+      - input: source('insee', 'ref_cog_commune')
+        rows:
+          - {millesime: 2026, typecom: COM, com: "01015", comparent: null, libelle: "Arboys en Bugey", dep: "01", reg: "84"}
+          - {millesime: 2026, typecom: COMD, com: "01015", comparent: "01015", libelle: "Arbignieu", dep: null, reg: null}
+          - {millesime: 2025, typecom: COM, com: "01015", comparent: null, libelle: "Arboys en Bugey", dep: "01", reg: "84"}
+    expect:
+      rows:
+        - {cog_millesime: 2026, commune_code: "01015", commune_type: COM, commune_parent_code: null, commune_nom: "Arboys en Bugey", departement_code: "01", region_code: "84"}
+        - {cog_millesime: 2026, commune_code: "01015", commune_type: COMD, commune_parent_code: "01015", commune_nom: "Arbignieu", departement_code: null, region_code: null}

@@ -1,0 +1,45 @@
+version: 2
+
+# Référentiels Insee copiés de Postgres vers le bronze par make charger-referentiels-bronze (remplacement complet,
+# rafraîchissement annuel ou ponctuel) : pas de freshness. read_files ajoute _rescued_data (écart 8 du 17/11) :
+# une valeur non nulle signale une donnée que le schéma Parquet n'a pas pu lire, le test arrête le build.
+
+sources:
+  - name: insee
+    schema: carburant_bronze
+    description: Code officiel géographique (COG) et Filosofi, chargés depuis la base de collecte.
+    config:
+      freshness: null
+    tables:
+      - name: ref_cog_commune
+        description: COG, une ligne par (millesime, typecom, com) ; un même code peut être COM et COMD.
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "_rescued_data is null"
+              config:
+                severity: error
+      - name: ref_cog_departement
+        description: COG, une ligne par (millesime, dep).
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "_rescued_data is null"
+              config:
+                severity: error
+      - name: ref_cog_region
+        description: COG, une ligne par (millesime, reg).
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "_rescued_data is null"
+              config:
+                severity: error
+      - name: ref_filosofi_commune
+        description: Filosofi, une ligne par (millesime, geo_object, codgeo) ; valeur masquée à NULL, statut gardé.
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "_rescued_data is null"
+              config:
+                severity: error

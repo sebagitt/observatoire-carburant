@@ -16,6 +16,11 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Millésimes des référentiels lus en staging (COG 2026, Filosofi 2023).
+vars:
+  cog_millesime: 2026
+  filosofi_millesime: 2023
+
 flags:
   send_anonymous_usage_stats: false
 
