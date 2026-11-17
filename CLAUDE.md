@@ -45,3 +45,5 @@ Oublier : sorties de logs longues, essais abandonnés.
 - Lancements réels vers Databricks : make charger-bronze seulement. Avant chaque lot : lire le total de la table, calculer l'attendu (total lu plus COUNT Postgres de la plage).
 - Aucun commit sans accord après diff montré. Aucun push sans accord explicite ; avant un push, contrôles de la section 1 du HANDOFF.
 - Un test vert ne prouve pas qu'il protège une règle : mutation d'une ligne dans une copie hors dépôt, le test doit passer du vert au rouge.
+- Accord groupé : si l'attendu recalculé diffère du chiffre donné dans le message, arrêt et question avant toute action irréversible (push, suppression, écriture en base), même si le recalcul paraît juste.
+- HANDOFF écrit avant le push : la ligne d'état du dépôt dit "push prévu juste après ce commit, à vérifier par git ls-remote à la reprise", jamais un état de push supposé.
