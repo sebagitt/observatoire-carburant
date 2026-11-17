@@ -157,10 +157,24 @@ donne par exemple `com_arm_code = "01344"`, `com_arm_name = "Saint-Denis-lès-Bo
 - Clé de dédoublonnage des prix : (`station_id`, `carburant`, `maj`), `ON CONFLICT DO NOTHING`. Les états : une version par station quand le hash canonique change, garde-fou à 30 % de stations changées par passage.
 - Tampon : base Postgres `collecte` (`prix_flux`, `station_etat_flux`, `passage_flux`), puis chargement vers `carburant_bronze`.
 - Contrôles : Great Expectations valide chaque lot avant chargement.
-- Code commune : absent de l'instantané, à prendre dans le quotidien (`com_arm_code`) ou par jointure spatiale sur les contours en J6 (voir section 10).
+- Code commune : absent de l'instantané, pris dans le quotidien (`com_arm_code`), **décision du 17/11** (option D, pas de jointure spatiale) ; détail et mesures en section 10, « J6 ».
 - La collecte s'arrête à la fin du projet (pas d'hôte 24 h sur 24) : `passage_flux` mesure la couverture.
 
 ## 10. Résultats des mesures
+
+### J6 : flux quotidien et `com_arm_code` (STOP 0 du 2026-11-17)
+
+- Source : export JSON du jeu `prix-carburants-quotidien`, `https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-carburants-quotidien/exports/json`, paramètres `select=id,com_arm_code,prix_maj` et `limit=-1` (**mesuré**, un téléchargement par chargement).
+- Licence : « Licence Ouverte (Etalab) », sans numéro de version dans les métadonnées (**documenté**, section 2).
+- Publication du 17/11 : jeu modifié à 07:07:55 UTC, `prix_maj` maximal 2026-11-16 23:59 UTC, donc un état à J-1 (**mesuré**).
+- Quotidien : 9 952 stations, 9 941 avec `com_arm_code` (99,89 %), aucune station avec plusieurs codes, aucun code hors format (**mesuré**).
+- Face à l'instantané (`stg_carburants__station_etats`) : 9 851 stations, 9 829 couvertes (99,777 %), 18 absentes du quotidien, 4 présentes sans code (**mesuré**).
+- Face au COG 2026, pour les codes des stations couvertes : COM 9 251, ARM 129, à la fois COM et COMD 449, COMD seul, COMA ou sans correspondance 0 (**mesuré**). Un code à la fois COM et COMD est rattaché au COM.
+- Départements : 9 829 stations comparées (dernier état du flux face au COG), 0 écart (**mesuré**).
+- Décisions du 17/11 : `com_arm_code` du quotidien retenu (option D) ; seuil de couverture 99,27 % (mesure moins 0,5 point, arrondi vers le bas), test dbt en error ; minimum GX de 9 500 lignes ; plusieurs codes pour une station : échec explicite du chargement.
+- Chargement : `make charger-station-commune` (télécharge, valide avec Great Expectations, remplace `ref_station_commune` dans Postgres en une transaction), puis `make charger-referentiels-bronze ARGS="--table ref_station_commune"`. Code : `ingestion/ref_station_commune.py`, `quality/gx/ref_station_commune.py`.
+- Premier chargement (17/11) : fichier de 6 492 958 octets, `fichier_date` 2026-11-16, 9 952 lignes dont 9 941 avec code (**mesuré**).
+- Limite : le quotidien est un état courant ; une station sortie du quotidien perd son rattachement au rechargement suivant. La baisse lente de la couverture est donc attendue (**hypothèse**, non mesurée dans le temps).
 
 ### M3 : code commune (mesuré, `make mesure-carburants M=m3`)
 
