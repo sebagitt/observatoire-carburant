@@ -1,4 +1,4 @@
-.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap test-dbt-garde bootstrap bootstrap-controles charger-bronze lire-bronze dbt charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
+.PHONY: up down pause reprise test test-tout test-ingestion test-bootstrap test-dbt-garde bootstrap bootstrap-controles charger-bronze lire-bronze charger-referentiels-bronze charger-station-commune dbt charger-cog charger-filosofi mesure-referentiels collecte-run rehash-etats mesure-carburants
 
 up:
 	docker compose up -d --build
@@ -60,7 +60,7 @@ bootstrap:
 # Lecture seule du bronze (total, min, max, doublons, plage), même mécanique : voir scripts/lire_bronze.sh.
 #   make lire-bronze ARGS="--table toutes"
 #   make lire-bronze ARGS="--table station_etat_flux --debut 2026-11-09T10:00:00+00:00 --fin 2026-11-09T11:00:00+00:00"
-ifneq ($(filter charger-bronze lire-bronze,$(MAKECMDGOALS)),)
+ifneq ($(filter charger-bronze lire-bronze charger-referentiels-bronze,$(MAKECMDGOALS)),)
 -include .env
 export DATABRICKS_HOST DATABRICKS_TOKEN DATABRICKS_CATALOG DATABRICKS_WAREHOUSE_ID
 export PYTHONUTF8 := 1
@@ -72,6 +72,12 @@ charger-bronze:
 
 lire-bronze:
 	docker compose run --rm --no-deps -T -e DATABRICKS_HOST -e DATABRICKS_TOKEN -e DATABRICKS_CATALOG -e DATABRICKS_WAREHOUSE_ID -v ./scripts:/scripts:ro -w /opt/airflow/project airflow bash /scripts/lire_bronze.sh $(ARGS)
+
+# Référentiels vers carburant_bronze (remplacement complet par table, contrôle des comptes), même mécanique que charger-bronze :
+# voir scripts/charger_referentiels_bronze.sh. ÉCRIT dans Databricks.
+#   make charger-referentiels-bronze ARGS="--table toutes"      (ou une table : ref_cog_commune, ..., ref_station_commune)
+charger-referentiels-bronze:
+	docker compose run --rm --no-deps -T -e DATABRICKS_HOST -e DATABRICKS_TOKEN -e DATABRICKS_CATALOG -e DATABRICKS_WAREHOUSE_ID -v ./scripts:/scripts:ro -w /opt/airflow/project airflow bash /scripts/charger_referentiels_bronze.sh $(ARGS)
 
 # dbt sur l'hôte, dans .venv-dbt (Python 3.12) : py -3.12 -m venv .venv-dbt puis .venv-dbt/Scripts/pip install -r requirements-dbt.txt
 # Pour cette seule cible, make inclut .env et exporte les quatre DATABRICKS_* (lus par dbt/profiles.yml via env_var) ;
@@ -107,6 +113,11 @@ charger-cog:
 # Filosofi 2023 (niveau de vie médian, taux de pauvreté, niveaux commune et arrondissement) : même principe, table ref_filosofi_commune.
 charger-filosofi:
 	docker compose exec -w /opt/airflow/project airflow python -m ingestion.referentiels filosofi --telecharger
+
+# Rattachement station commune (com_arm_code du flux quotidien) : télécharge l'export dans data/referentiels/station_commune,
+# valide (GX) puis remplace ref_station_commune dans la base collecte (une transaction). Dans le conteneur airflow. ÉCRIT dans Postgres.
+charger-station-commune:
+	docker compose exec -w /opt/airflow/project airflow python -m ingestion.ref_station_commune --telecharger
 
 # Mesures sur les référentiels chargés (après make charger-cog et make charger-filosofi), lecture seule : couverture de Filosofi dans le COG.
 mesure-referentiels:
