@@ -1,0 +1,134 @@
+version: 2
+
+models:
+  - name: dim_commune
+    description: >
+      Une ligne par commune (COM) ou arrondissement municipal (ARM) du COG var('cog_millesime') ; COMA et COMD exclus
+      (ils se rattachent à leur parent). Filosofi var('filosofi_millesime') joint sur (geo_object = commune_type,
+      codgeo = commune_code) : sans ligne Filosofi ou valeur masquée, la valeur reste NULL (pas de table de mouvements).
+    columns:
+      - name: commune_code
+        data_tests: [unique, not_null]
+      - name: commune_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [COM, ARM]
+      - name: commune_nom
+        data_tests: [not_null]
+      - name: commune_parent_code
+        description: comparent pour un ARM, le code lui-même pour un COM.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_commune')
+                field: commune_code
+      - name: departement_code
+        description: Mesure du 17/11 avant écriture, 0 COM ou ARM sans département ; not_null ajouté.
+        data_tests: [not_null]
+      - name: departement_nom
+      - name: region_code
+      - name: region_nom
+      - name: niveau_vie_median_eur
+        description: Filosofi med_sl, euros par an ; NULL si masqué ou sans ligne Filosofi (107 COM, fiche filosofi, piège 4).
+      - name: niveau_vie_median_statut
+        description: Filosofi med_sl_statut (C, confidentiel).
+      - name: taux_pauvrete_pct
+        description: Filosofi pr_md60, taux de pauvreté au seuil de 60 %, en pourcentage.
+      - name: taux_pauvrete_statut
+        description: Filosofi pr_md60_statut.
+      - name: filosofi_millesime
+        description: Millésime de la ligne Filosofi jointe ; NULL sans ligne Filosofi.
+      - name: cog_millesime
+
+unit_tests:
+  - name: test_dim_commune_parent_arm_et_com
+    description: un ARM reçoit son code parent (comparent), un COM se reçoit lui-même.
+    model: dim_commune
+    given:
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {cog_millesime: 2026, commune_code: "75056", commune_type: COM, commune_parent_code: null, commune_nom: "Paris", departement_code: "75", region_code: "11"}
+          - {cog_millesime: 2026, commune_code: "75101", commune_type: ARM, commune_parent_code: "75056", commune_nom: "Paris 1er Arrondissement", departement_code: "75", region_code: "11"}
+      - input: ref('stg_insee__cog_departements')
+        rows:
+          - {departement_code: "75", departement_nom: "Paris", region_code: "11"}
+      - input: ref('stg_insee__cog_regions')
+        rows:
+          - {region_code: "11", region_nom: "Île-de-France"}
+      - input: ref('stg_insee__filosofi_communes')
+        rows:
+          - {filosofi_millesime: 2023, geo_object: ARM, commune_code: "75101", med_sl: 40000.0, med_sl_statut: A}
+    expect:
+      rows:
+        - {commune_code: "75056", commune_type: COM, commune_parent_code: "75056", departement_nom: "Paris", region_nom: "Île-de-France"}
+        - {commune_code: "75101", commune_type: ARM, commune_parent_code: "75056", departement_nom: "Paris", region_nom: "Île-de-France"}
+
+  - name: test_dim_commune_coma_comd_exclus
+    description: COMA et COMD sont exclus ; un code à la fois COM et COMD donne une seule ligne, celle du COM.
+    model: dim_commune
+    given:
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {cog_millesime: 2026, commune_code: "01015", commune_type: COM, commune_parent_code: null, commune_nom: "Arboys en Bugey", departement_code: "01", region_code: "84"}
+          - {cog_millesime: 2026, commune_code: "01015", commune_type: COMD, commune_parent_code: "01015", commune_nom: "Arbignieu", departement_code: null, region_code: null}
+          - {cog_millesime: 2026, commune_code: "01340", commune_type: COMA, commune_parent_code: "01015", commune_nom: "Saint-Bois", departement_code: null, region_code: null}
+      - input: ref('stg_insee__cog_departements')
+        rows:
+          - {departement_code: "01", departement_nom: "Ain", region_code: "84"}
+      - input: ref('stg_insee__cog_regions')
+        rows:
+          - {region_code: "84", region_nom: "Auvergne-Rhône-Alpes"}
+      - input: ref('stg_insee__filosofi_communes')
+        rows:
+          - {filosofi_millesime: 2023, geo_object: COM, commune_code: "99998", med_sl: 1.0, med_sl_statut: A}
+    expect:
+      rows:
+        - {commune_code: "01015", commune_type: COM, commune_nom: "Arboys en Bugey"}
+
+  - name: test_dim_commune_filosofi_statut_c_valeur_nulle
+    description: une ligne Filosofi en statut C (valeur masquée) donne une valeur NULL et garde le statut C ; une valeur publiée passe telle quelle.
+    model: dim_commune
+    given:
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {cog_millesime: 2026, commune_code: "01001", commune_type: COM, commune_parent_code: null, commune_nom: "L'Abergement-Clémenciat", departement_code: "01", region_code: "84"}
+          - {cog_millesime: 2026, commune_code: "01004", commune_type: COM, commune_parent_code: null, commune_nom: "Ambérieu-en-Bugey", departement_code: "01", region_code: "84"}
+      - input: ref('stg_insee__cog_departements')
+        rows:
+          - {departement_code: "01", departement_nom: "Ain", region_code: "84"}
+      - input: ref('stg_insee__cog_regions')
+        rows:
+          - {region_code: "84", region_nom: "Auvergne-Rhône-Alpes"}
+      - input: ref('stg_insee__filosofi_communes')
+        rows:
+          - {filosofi_millesime: 2023, geo_object: COM, commune_code: "01001", med_sl: 25000.0, med_sl_statut: A, pr_md60: null, pr_md60_statut: C}
+          - {filosofi_millesime: 2023, geo_object: COM, commune_code: "01004", med_sl: null, med_sl_statut: C, pr_md60: 14.5, pr_md60_statut: A}
+    expect:
+      rows:
+        - {commune_code: "01001", niveau_vie_median_eur: 25000.0, niveau_vie_median_statut: A, taux_pauvrete_pct: null, taux_pauvrete_statut: C}
+        - {commune_code: "01004", niveau_vie_median_eur: null, niveau_vie_median_statut: C, taux_pauvrete_pct: 14.5, taux_pauvrete_statut: A}
+
+  - name: test_dim_commune_filosofi_hors_cog_sans_ligne
+    description: un code Filosofi absent du COG ne crée pas de ligne ; la commune présente reçoit sa valeur ; la jointure respecte geo_object.
+    model: dim_commune
+    given:
+      - input: ref('stg_insee__cog_communes')
+        rows:
+          - {cog_millesime: 2026, commune_code: "01001", commune_type: COM, commune_parent_code: null, commune_nom: "L'Abergement-Clémenciat", departement_code: "01", region_code: "84"}
+      - input: ref('stg_insee__cog_departements')
+        rows:
+          - {departement_code: "01", departement_nom: "Ain", region_code: "84"}
+      - input: ref('stg_insee__cog_regions')
+        rows:
+          - {region_code: "84", region_nom: "Auvergne-Rhône-Alpes"}
+      - input: ref('stg_insee__filosofi_communes')
+        rows:
+          - {filosofi_millesime: 2023, geo_object: COM, commune_code: "01001", med_sl: 25000.0, med_sl_statut: A}
+          - {filosofi_millesime: 2023, geo_object: ARM, commune_code: "01001", med_sl: 1.0, med_sl_statut: A}
+          - {filosofi_millesime: 2023, geo_object: COM, commune_code: "99999", med_sl: 30000.0, med_sl_statut: A}
+    expect:
+      rows:
+        - {commune_code: "01001", niveau_vie_median_eur: 25000.0, filosofi_millesime: 2023}
