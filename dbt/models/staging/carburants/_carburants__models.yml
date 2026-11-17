@@ -119,6 +119,23 @@ models:
       - name: charge_ts
         description: Heure du chargement dans le bronze (traçabilité, hors freshness).
 
+  - name: stg_carburants__station_communes
+    description: Rattachement des stations à une commune ou un arrondissement (com_arm_code du flux quotidien), une ligne par station.
+    columns:
+      - name: station_id
+        data_tests: [unique, not_null]
+      - name: commune_arm_code
+        description: Code INSEE de commune ou d'arrondissement municipal ; NULL si le quotidien n'en donne pas.
+      - name: fichier_date
+        description: Jour UTC du dernier prix_maj du fichier quotidien chargé.
+        data_tests: [not_null]
+      - name: postgres_charge_ts
+        description: Heure du chargement dans la base de collecte (Postgres).
+        data_tests: [not_null]
+      - name: charge_ts
+        description: Heure du chargement dans le bronze (traçabilité, hors freshness).
+        data_tests: [not_null]
+
 unit_tests:
   - name: test_prix_maj_ts_identique_a_maj
     description: maj passe telle quelle dans prix_maj_ts (aucune conversion de fuseau) ; renommage et type du prix.

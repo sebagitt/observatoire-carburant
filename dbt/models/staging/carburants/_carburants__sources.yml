@@ -53,3 +53,19 @@ sources:
           - dbt_utils.unique_combination_of_columns:
               arguments:
                 combination_of_columns: [station_id, collecte_ts]
+
+      - name: ref_station_commune
+        description: Rattachement station commune (com_arm_code du flux quotidien), remplacé à chaque chargement.
+        # Freshness sur fichier_date (jour du dernier prix_maj du fichier), pas sur _charge_ts : un rechargement d'un
+        # vieux fichier ne doit pas paraître frais (écart 7 du 17/11). Rafraîchissement manuel : warn 45 j, error 90 j.
+        config:
+          loaded_at_field: "cast(fichier_date as timestamp)"
+          freshness:
+            warn_after: {count: 45, period: day}
+            error_after: {count: 90, period: day}
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "_rescued_data is null"
+              config:
+                severity: error
