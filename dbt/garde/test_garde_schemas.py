@@ -3,11 +3,14 @@
 Les schémas bronze, silver, gold, ci_silver, ci_gold et default du catalogue appartiennent à un autre
 projet (EnergiScope) : aucun nœud de ce projet ne doit y écrire ni y lire.
 
-Trois tests :
+Quatre tests :
 - projet réel : après dbt parse, chaque nœud et chaque source a un schéma qui commence par carburant_ ;
 - projet réel : tout modèle sous models/staging/ est privé (access: private, groupe carburants) ;
-- sonde : copie du projet avec trois modèles factices, schémas attendus exacts (protège la macro
-  generate_schema_name : sans elle, dbt produirait carburant_silver_carburant_silver).
+- projet réel : tout modèle sous models/marts/ est dans carburant_gold, sous models/intermediate/ dans
+  carburant_silver (J6) ;
+- sonde : copie du projet avec cinq modèles factices, schémas attendus exacts (protège la macro
+  generate_schema_name : sans elle, dbt produirait carburant_silver_carburant_silver ; et le +schema
+  des dossiers marts et intermediate).
 
 dbt parse ne se connecte pas : les variables DATABRICKS_* reçoivent des valeurs factices, .env n'est jamais lu.
 Le projet testé est dbt/ par défaut ; GARDE_PROJET_DIR permet de viser une copie (mutation hors dépôt).
@@ -39,12 +42,17 @@ SONDES = {
     "models/staging/garde_sonde_staging.sql": "select 1 as x",
     "models/autres/garde_sonde_defaut.sql": "select 1 as x",
     "models/staging/garde_sonde_gold.sql": "{{ config(schema='carburant_gold') }}\nselect 1 as x",
+    "models/marts/garde_sonde_marts.sql": "select 1 as x",
+    "models/intermediate/garde_sonde_intermediate.sql": "select 1 as x",
 }
 SCHEMAS_ATTENDUS = {
     "garde_sonde_staging": "carburant_silver",
     "garde_sonde_defaut": "carburant_silver",
     "garde_sonde_gold": "carburant_gold",
+    "garde_sonde_marts": "carburant_gold",
+    "garde_sonde_intermediate": "carburant_silver",
 }
+SCHEMA_PAR_DOSSIER = {"models/marts/": "carburant_gold", "models/intermediate/": "carburant_silver"}
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +106,28 @@ def test_projet_reel_staging_prive(tmp_path):
     }
     assert staging, "aucun modèle de staging trouvé : la garde passerait à vide"
     assert {nom: acces for nom, acces in staging.items() if acces != "private"} == {}
+
+
+def test_projet_reel_schema_par_dossier(tmp_path):
+    """Tout modèle sous models/marts/ est dans carburant_gold, sous models/intermediate/ dans carburant_silver."""
+    manifest = parser(PROJET, tmp_path)
+    vus = {dossier: {} for dossier in SCHEMA_PAR_DOSSIER}
+    for n in manifest["nodes"].values():
+        if n["resource_type"] != "model":
+            continue
+        chemin = n["original_file_path"].replace("\\", "/")
+        for dossier in SCHEMA_PAR_DOSSIER:
+            if chemin.startswith(dossier):
+                vus[dossier][n["name"]] = n["schema"]
+    for dossier, modeles in vus.items():
+        assert modeles, f"aucun modèle sous {dossier} : la garde passerait à vide"
+    fautifs = {
+        nom: schema
+        for dossier, modeles in vus.items()
+        for nom, schema in modeles.items()
+        if schema != SCHEMA_PAR_DOSSIER[dossier]
+    }
+    assert fautifs == {}
 
 
 def test_sonde_schemas_exacts(tmp_path):
