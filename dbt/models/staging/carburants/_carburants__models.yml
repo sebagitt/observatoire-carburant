@@ -70,14 +70,63 @@ models:
         data_tests: [not_null]
       - name: etat_hash
         data_tests: [not_null]
+      # Filet de taux de non-NULL (J7) : une clé JSON mal écrite ou disparue donne 0 % (get_json_object).
+      # D3 : taux mesuré au STOP 0 du 19/11 moins 1 point, au millième inférieur.
+      # D3b (colonnes volatiles, leur taux suit l'état des stations) : moitié du taux mesuré, au centième inférieur.
+      - name: adresse
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
       - name: code_postal
         description: Clé cp, chaîne (zéro de tête gardé).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
+      - name: ville
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.988   # D3, 99,8931 % au 19/11
+              config:
+                severity: error
       - name: code_departement
-        description: Le flux instantané ne contient aucun code INSEE de commune (mesure du 16/11) ; 24 lignes NULL mesurées.
+        description: versions anciennes de quelques stations sans département ; nombre suivi par le test not_null en warn (34 lignes au 19/11)
         data_tests:
           - not_null:
               config:
                 severity: warn
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.988   # D3, 99,8931 % au 19/11
+              config:
+                severity: error
+      - name: departement_nom
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.988   # D3, 99,8931 % au 19/11
+              config:
+                severity: error
+      - name: code_region
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.988   # D3, 99,8931 % au 19/11
+              config:
+                severity: error
+      - name: region_nom
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.988   # D3, 99,8931 % au 19/11
+              config:
+                severity: error
       - name: latitude
         description: Clé latitude divisée par 100 000 (chaîne entière ou décimale), en degrés ; égale à geom.lat (écart 0 mesuré).
         data_tests:
@@ -89,6 +138,11 @@ models:
                 max_value: 51.5
               config:
                 severity: warn
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
       - name: longitude
         description: Clé longitude divisée par 100 000, en degrés.
         data_tests:
@@ -100,20 +154,81 @@ models:
                 max_value: 10.0
               config:
                 severity: warn
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
       - name: type_route_code
         description: Clé pop. A autoroute, R route (hypothèse, non vu dans la documentation).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
       - name: automate_24_24
         description: Clé horaires_automate_24_24 ; Oui donne true, Non donne false, toute autre valeur NULL.
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.99   # D3, 100,0000 % au 19/11
+              config:
+                severity: error
       - name: horaires_json
         description: JSON brut des horaires (exploité en J7).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.43   # D3b, 87,0845 % au 19/11
+              config:
+                severity: error
       - name: services_json
         description: Liste JSON brute des services (clé services_service).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.46   # D3b, 93,3992 % au 19/11
+              config:
+                severity: error
       - name: ruptures_json
         description: JSON brut des ruptures (12 colonnes typées en J7).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.48   # D3b, 96,2389 % au 19/11
+              config:
+                severity: error
+      - name: carburants_disponibles_json
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.45   # D3b, 90,6852 % au 19/11
+              config:
+                severity: error
+      - name: carburants_indisponibles_json
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.45   # D3b, 90,0374 % au 19/11
+              config:
+                severity: error
       - name: carburants_rupture_definitive_liste
         description: Liste brute, séparateur point-virgule.
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.39   # D3b, 78,1503 % au 19/11
+              config:
+                severity: error
       - name: carburants_rupture_temporaire_liste
         description: Liste brute, séparateur point-virgule.
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.27   # D3b, 54,1181 % au 19/11
+              config:
+                severity: error
       - name: fichier_source
         description: Fichier Parquet chargé dans le bronze (traçabilité).
       - name: charge_ts
