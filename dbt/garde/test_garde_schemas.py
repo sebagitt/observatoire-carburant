@@ -29,7 +29,9 @@ from dbt.cli.main import dbtRunner
 PROJET = Path(os.environ.get("GARDE_PROJET_DIR", Path(__file__).resolve().parents[1]))
 PREFIXE = "carburant_"
 SCHEMAS_INTERDITS = {"bronze", "silver", "gold", "ci_silver", "ci_gold", "default", "information_schema"}
-TYPES_GARDES = {"model", "seed", "snapshot", "test", "unit_test", "analysis"}
+#   les unit tests sont sous manifest["unit_tests"], pas sous "nodes",
+#   et ne créent qu'une vue temporaire de session : aucun schéma à garder.
+TYPES_GARDES = {"model", "seed", "snapshot", "test", "analysis"}
 
 VARIABLES_FACTICES = {
     "DATABRICKS_HOST": "garde.invalid",
