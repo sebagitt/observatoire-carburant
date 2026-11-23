@@ -3,9 +3,11 @@
 Les schémas bronze, silver, gold, ci_silver, ci_gold et default du catalogue appartiennent à un autre
 projet (EnergiScope) : aucun nœud de ce projet ne doit y écrire ni y lire.
 
-Quatre tests :
+Cinq tests :
 - projet réel : après dbt parse, chaque nœud et chaque source a un schéma qui commence par carburant_ ;
 - projet réel : tout modèle sous models/staging/ est privé (access: private, groupe carburants) ;
+- projet réel : tout modèle sous models/marts/ est public avec contract appliqué, et aucun modèle public hors de
+  models/marts/ (J8) ;
 - projet réel : tout modèle sous models/marts/ est dans carburant_gold, sous models/intermediate/ dans
   carburant_silver (J6) ;
 - sonde : copie du projet avec cinq modèles factices, schémas attendus exacts (protège la macro
@@ -108,6 +110,24 @@ def test_projet_reel_staging_prive(tmp_path):
     }
     assert staging, "aucun modèle de staging trouvé : la garde passerait à vide"
     assert {nom: acces for nom, acces in staging.items() if acces != "private"} == {}
+
+
+def test_projet_reel_marts_publics_sous_contract(tmp_path):
+    """Tout modèle sous models/marts/ est public avec contract appliqué ; tout modèle public est sous models/marts/ (J8)."""
+    manifest = parser(PROJET, tmp_path)
+    modeles = {
+        n["name"]: (n["original_file_path"].replace("\\", "/").startswith("models/marts/"), n["access"], n["contract"]["enforced"])
+        for n in manifest["nodes"].values()
+        if n["resource_type"] == "model" and n["package_name"] == manifest["metadata"]["project_name"]
+    }
+    assert any(marts for marts, _, _ in modeles.values()), "aucun modèle sous models/marts/ : la garde passerait à vide"
+    marts_fautifs = {
+        nom: (acces, contract) for nom, (marts, acces, contract) in modeles.items()
+        if marts and (acces != "public" or contract is not True)
+    }
+    publics_hors_marts = {nom for nom, (marts, acces, _) in modeles.items() if acces == "public" and not marts}
+    assert marts_fautifs == {}
+    assert publics_hors_marts == set()
 
 
 def test_projet_reel_schema_par_dossier(tmp_path):
