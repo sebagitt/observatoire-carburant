@@ -38,6 +38,17 @@ def _etat(client, entrepot: str) -> str:
     return str(getattr(etat, "value", etat))
 
 
+_CODE_ERREUR = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+
+def _diagnostic(erreur: Exception) -> str:
+    """'<classe>, <error_code>' d'une exception du SDK ; error_code absent ou hors forme d'un code : 'inconnu'.
+    Le message de l'exception n'est jamais lu (il peut contenir l'hôte ou l'identifiant de l'entrepôt)."""
+    code = getattr(erreur, "error_code", None)
+    code = code if isinstance(code, str) and _CODE_ERREUR.fullmatch(code) else "inconnu"
+    return f"{type(erreur).__name__}, {code}"
+
+
 def assurer_entrepot(client, entrepot: str, pas: float = 10, max_interrogations: int = 12, dormir=time.sleep, horloge=time.monotonic) -> float:
     """Attend que l'entrepôt soit RUNNING et rend la durée d'attente en secondes.
 
@@ -58,8 +69,8 @@ def assurer_entrepot(client, entrepot: str, pas: float = 10, max_interrogations:
         if etat == "STOPPED" and not demarre:
             try:
                 client.warehouses.start(id=entrepot)
-            except Exception:  # noqa: BLE001 - jamais le message du SDK
-                raise ErreurBootstrap("démarrage de l'entrepôt impossible") from None
+            except Exception as erreur:  # noqa: BLE001 - jamais le message du SDK : classe et error_code seulement
+                raise ErreurBootstrap(f"démarrage de l'entrepôt impossible ({_diagnostic(erreur)})") from None
             demarre = True
         if i < max_interrogations - 1:
             dormir(pas)

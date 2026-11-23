@@ -168,6 +168,47 @@ def test_erreur_du_sdk_sans_valeur_sensible(quoi):
     assert not any(s in str(info.value) for s in SECRETS) and info.value.__cause__ is None
 
 
+# --- diagnostic d'un start refusé (J7, section D) : classe et error_code, jamais le message --------------------------
+
+
+class ResourceExhausted(Exception):
+    """Erreur factice du SDK : même nom de classe et même attribut error_code que les erreurs de databricks.sdk."""
+
+    def __init__(self, message, error_code="RESOURCE_EXHAUSTED"):
+        super().__init__(message)
+        self.error_code = error_code
+
+
+def start_refuse(erreur):
+    client = FauxClient(["STOPPED"], erreur_start=erreur)
+    with pytest.raises(ErreurBootstrap) as info:
+        assurer(client)
+    assert client.genres() == ["get", "start"]
+    return info.value
+
+
+def test_start_refuse_donne_la_classe_et_l_error_code_sans_le_message():
+    erreur = start_refuse(ResourceExhausted("quota atteint sur https://hote-secret.invalid/sql/1.0/warehouses/abc"))
+    assert str(erreur) == "démarrage de l'entrepôt impossible (ResourceExhausted, RESOURCE_EXHAUSTED)"
+    assert "hote-secret" not in str(erreur)
+
+
+def test_start_refuse_ne_chaine_pas_l_exception_d_origine():
+    erreur = start_refuse(ResourceExhausted("https://hote-secret.invalid"))
+    assert erreur.__cause__ is None and erreur.__suppress_context__ is True
+
+
+def test_start_refuse_sans_error_code_donne_inconnu():
+    erreur = start_refuse(RuntimeError("https://hote-secret.invalid"))
+    assert str(erreur) == "démarrage de l'entrepôt impossible (RuntimeError, inconnu)"
+
+
+def test_start_refuse_error_code_hors_format_donne_inconnu():
+    erreur = start_refuse(ResourceExhausted("refus", error_code="https://hote-secret.invalid"))
+    assert str(erreur) == "démarrage de l'entrepôt impossible (ResourceExhausted, inconnu)"
+    assert "hote-secret" not in str(erreur)
+
+
 def test_les_parametres_des_appels_existent_dans_le_vrai_sdk():
     sql = pytest.importorskip("databricks.sdk.service.sql")
     client = FauxClient(["STOPPED", "RUNNING"])
