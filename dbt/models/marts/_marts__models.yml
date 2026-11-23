@@ -78,6 +78,51 @@ models:
       - name: charge_ts
         description: Heure de chargement au bronze de la ligne d'origine de la version.
 
+  - name: fct_ruptures
+    description: >
+      Une ligne par événement de rupture (station, carburant, rupture_debut_ts), reconstruit depuis le journal des
+      versions. Fin observée au quart d'heure près (première version de la station sans l'événement), sauf pendant
+      les trous de collecte ; commune depuis int_stations__commune.
+    columns:
+      - name: rupture_id
+        description: Clé de substitution (station_id, carburant, rupture_debut_ts).
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_station')
+                field: station_id
+      - name: carburant
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [e10, e85, gazole, gplc, sp95, sp98]
+      - name: rupture_debut_ts
+        description: Début annoncé par la source, en UTC (heure de Paris convertie, voir le staging).
+        data_tests: [not_null]
+      - name: rupture_type
+        description: Dernier type observé (definitive ou temporaire) ; un seul type par événement attendu (test en warn).
+      - name: premiere_observation_ts
+        description: Première version de la station où l'événement est vu.
+      - name: derniere_observation_ts
+        description: Dernière version de la station où l'événement est vu.
+      - name: fin_observee_ts
+        description: >
+          collecte_ts de la première version de la station postérieure à derniere_observation_ts (l'événement y a
+          disparu) ; NULL si l'événement est présent dans la dernière version.
+      - name: est_en_cours
+        description: Vrai si l'événement est présent dans la dernière version connue de la station (fin NULL).
+      - name: commune_code
+        description: Commune de la station (int_stations__commune) ; NULL si la station n'est pas rattachée.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_commune')
+                field: commune_code
+
 unit_tests:
   - name: test_dim_commune_parent_arm_et_com
     description: un ARM reçoit son code parent (comparent), un COM se reçoit lui-même.
@@ -234,3 +279,92 @@ unit_tests:
     expect:
       rows:
         - {station_id: 7, version_num: 1, adresse: "7 rue G", debut_validite_ts: "2026-11-16 10:00:00", fin_validite_ts: null, est_courante: true, charge_ts: "2026-11-16 12:20:31"}
+
+  - name: test_fct_ruptures_trois_versions_un_evenement
+    description: une rupture vue sur trois versions de la station donne un seul événement, de la première à la dernière observation.
+    model: fct_ruptures
+    given:
+      - input: ref('int_ruptures__observations')
+        format: sql
+        rows: |
+          select cast(1 as bigint) as station_id, timestamp '2026-11-20 08:00:00' as collecte_ts, 'gazole' as carburant, timestamp '2026-11-20 07:50:00' as rupture_debut_ts, 'temporaire' as rupture_type
+          union all select cast(1 as bigint), timestamp '2026-11-20 09:00:00', 'gazole', timestamp '2026-11-20 07:50:00', 'temporaire'
+          union all select cast(1 as bigint), timestamp '2026-11-20 10:00:00', 'gazole', timestamp '2026-11-20 07:50:00', 'temporaire'
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-20 08:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 09:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 10:00:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "01001"}
+    expect:
+      rows:
+        - {station_id: 1, carburant: gazole, rupture_debut_ts: "2026-11-20 07:50:00", rupture_type: temporaire, premiere_observation_ts: "2026-11-20 08:00:00", derniere_observation_ts: "2026-11-20 10:00:00", commune_code: "01001"}
+
+  - name: test_fct_ruptures_fin_premiere_version_sans_l_evenement
+    description: >
+      la fin observée est le collecte_ts de la première version de la station où l'événement a disparu, pas la
+      dernière observation ni une version plus tardive ; une version d'une autre station ne compte pas.
+    model: fct_ruptures
+    given:
+      - input: ref('int_ruptures__observations')
+        format: sql
+        rows: |
+          select cast(1 as bigint) as station_id, timestamp '2026-11-20 08:00:00' as collecte_ts, 'sp98' as carburant, timestamp '2026-11-20 07:00:00' as rupture_debut_ts, 'temporaire' as rupture_type
+          union all select cast(1 as bigint), timestamp '2026-11-20 09:00:00', 'sp98', timestamp '2026-11-20 07:00:00', 'temporaire'
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-20 08:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 09:00:00"}
+          - {station_id: 2, collecte_ts: "2026-11-20 09:30:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 10:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 11:00:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "01001"}
+    expect:
+      rows:
+        - {station_id: 1, carburant: sp98, premiere_observation_ts: "2026-11-20 08:00:00", derniere_observation_ts: "2026-11-20 09:00:00", fin_observee_ts: "2026-11-20 10:00:00", est_en_cours: false}
+
+  - name: test_fct_ruptures_presente_dans_la_derniere_version_en_cours
+    description: une rupture présente dans la dernière version de la station donne est_en_cours vrai et une fin NULL.
+    model: fct_ruptures
+    given:
+      - input: ref('int_ruptures__observations')
+        format: sql
+        rows: |
+          select cast(1 as bigint) as station_id, timestamp '2026-11-20 09:00:00' as collecte_ts, 'e85' as carburant, timestamp '2026-11-20 08:30:00' as rupture_debut_ts, 'definitive' as rupture_type
+          union all select cast(1 as bigint), timestamp '2026-11-20 10:00:00', 'e85', timestamp '2026-11-20 08:30:00', 'definitive'
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-20 08:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 09:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 10:00:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "01001"}
+    expect:
+      rows:
+        - {station_id: 1, carburant: e85, premiere_observation_ts: "2026-11-20 09:00:00", fin_observee_ts: null, est_en_cours: true}
+
+  - name: test_fct_ruptures_nouveau_debut_deux_evenements
+    description: même station, même carburant, nouveau début de rupture donne deux événements distincts.
+    model: fct_ruptures
+    given:
+      - input: ref('int_ruptures__observations')
+        format: sql
+        rows: |
+          select cast(1 as bigint) as station_id, timestamp '2026-11-20 08:00:00' as collecte_ts, 'gplc' as carburant, timestamp '2026-11-20 07:00:00' as rupture_debut_ts, 'temporaire' as rupture_type
+          union all select cast(1 as bigint), timestamp '2026-11-20 10:00:00', 'gplc', timestamp '2026-11-20 09:45:00', 'temporaire'
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-20 08:00:00"}
+          - {station_id: 1, collecte_ts: "2026-11-20 10:00:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "01001"}
+    expect:
+      rows:
+        - {station_id: 1, carburant: gplc, rupture_debut_ts: "2026-11-20 07:00:00", premiere_observation_ts: "2026-11-20 08:00:00", fin_observee_ts: "2026-11-20 10:00:00", est_en_cours: false}
+        - {station_id: 1, carburant: gplc, rupture_debut_ts: "2026-11-20 09:45:00", premiere_observation_ts: "2026-11-20 10:00:00", fin_observee_ts: null, est_en_cours: true}

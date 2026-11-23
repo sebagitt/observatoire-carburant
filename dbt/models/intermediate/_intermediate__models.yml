@@ -27,6 +27,31 @@ models:
       - name: departement_code_cog
         description: Département de commune_arm_code dans le COG.
 
+  - name: int_ruptures__observations
+    description: >
+      Une ligne par (station, collecte_ts, carburant) quand la version de l'état porte une rupture pour ce carburant
+      (rupture_debut_ts non NULL). Dépliage des 12 colonnes de rupture de stg_carburants__station_etats.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, collecte_ts, carburant]
+    columns:
+      - name: station_id
+        data_tests: [not_null]
+      - name: collecte_ts
+        data_tests: [not_null]
+      - name: carburant
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [e10, e85, gazole, gplc, sp95, sp98]
+      - name: rupture_debut_ts
+        description: Début de la rupture en UTC (heure de Paris convertie, voir le staging).
+        data_tests: [not_null]
+      - name: rupture_type
+        description: definitive ou temporaire.
+
 unit_tests:
   - name: test_int_stations_absente_du_quotidien_null
     description: une station absente du quotidien donne commune_arm_code, commune_code et rattachement_source NULL.
@@ -106,3 +131,18 @@ unit_tests:
     expect:
       rows:
         - {station_id: 1, commune_arm_code: "01015", commune_code: "01015", departement_code_cog: "01"}
+
+  - name: test_int_ruptures_une_ligne_par_carburant_en_rupture
+    description: >
+      une version avec une rupture gazole et une rupture sp95 donne deux lignes ; un début NULL ne donne aucune ligne,
+      même si le type est renseigné.
+    model: int_ruptures__observations
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-20 08:00:00", gazole_rupture_debut_ts: "2026-11-20 07:00:00", gazole_rupture_type: temporaire, sp95_rupture_debut_ts: "2026-11-19 12:00:00", sp95_rupture_type: definitive}
+          - {station_id: 2, collecte_ts: "2026-11-20 08:00:00", gazole_rupture_debut_ts: null, gazole_rupture_type: temporaire}
+    expect:
+      rows:
+        - {station_id: 1, collecte_ts: "2026-11-20 08:00:00", carburant: gazole, rupture_debut_ts: "2026-11-20 07:00:00", rupture_type: temporaire}
+        - {station_id: 1, collecte_ts: "2026-11-20 08:00:00", carburant: sp95, rupture_debut_ts: "2026-11-19 12:00:00", rupture_type: definitive}
