@@ -1,7 +1,7 @@
 -- États des stations du bronze : extraire les champs du JSON etat (chaîne), renommer, typer.
 -- Aucune jointure, aucune règle métier. Une clé absente donne NULL (get_json_object).
 -- Non repris (lisibles dans le bronze) : geom (égal à latitude et longitude), services (doublon de
--- services_service), horaires_jour (dérivé de horaires), les 12 clés <carburant>_rupture_* (J7).
+-- services_service), horaires_jour (dérivé de horaires).
 with source as (
 
     select * from {{ source('carburant_bronze', 'station_etat_flux') }}
@@ -41,6 +41,21 @@ select
     get_json_object(etat, '$.carburants_indisponibles') as carburants_indisponibles_json,
     get_json_object(etat, '$.carburants_rupture_definitive') as carburants_rupture_definitive_liste,
     get_json_object(etat, '$.carburants_rupture_temporaire') as carburants_rupture_temporaire_liste,
+
+    -- ruptures par carburant : début étiqueté +00:00 mais en heure de Paris (J8-M4c, même défaut que maj des prix) ;
+    -- l'étiquette est ignorée, l'heure de Paris convertie en UTC
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.e10_rupture_debut'), 1, 19)), 'Europe/Paris') as e10_rupture_debut_ts,
+    get_json_object(etat, '$.e10_rupture_type') as e10_rupture_type,
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.e85_rupture_debut'), 1, 19)), 'Europe/Paris') as e85_rupture_debut_ts,
+    get_json_object(etat, '$.e85_rupture_type') as e85_rupture_type,
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.gazole_rupture_debut'), 1, 19)), 'Europe/Paris') as gazole_rupture_debut_ts,
+    get_json_object(etat, '$.gazole_rupture_type') as gazole_rupture_type,
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.gplc_rupture_debut'), 1, 19)), 'Europe/Paris') as gplc_rupture_debut_ts,
+    get_json_object(etat, '$.gplc_rupture_type') as gplc_rupture_type,
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.sp95_rupture_debut'), 1, 19)), 'Europe/Paris') as sp95_rupture_debut_ts,
+    get_json_object(etat, '$.sp95_rupture_type') as sp95_rupture_type,
+    to_utc_timestamp(to_timestamp(substring(get_json_object(etat, '$.sp98_rupture_debut'), 1, 19)), 'Europe/Paris') as sp98_rupture_debut_ts,
+    get_json_object(etat, '$.sp98_rupture_type') as sp98_rupture_type,
 
     _fichier_source as fichier_source,
     _charge_ts as charge_ts

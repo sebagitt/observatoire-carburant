@@ -229,6 +229,144 @@ models:
                 at_least: 0.27   # D3b, 54,1181 % au 19/11
               config:
                 severity: error
+      - name: e10_rupture_debut_ts
+        description: >
+          Début de la rupture de e10, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.17   # D3b, 34,3331 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: e10_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.17   # D3b, 34,3331 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: e85_rupture_debut_ts
+        description: >
+          Début de la rupture de e85, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.28   # D3b, 57,0682 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: e85_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.28   # D3b, 57,0682 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: gazole_rupture_debut_ts
+        description: >
+          Début de la rupture de gazole, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.07   # D3b, 14,5566 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: gazole_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.07   # D3b, 14,5566 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: gplc_rupture_debut_ts
+        description: >
+          Début de la rupture de gplc, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.37   # D3b, 75,5784 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: gplc_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.37   # D3b, 75,5784 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: sp95_rupture_debut_ts
+        description: >
+          Début de la rupture de sp95, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.38   # D3b, 77,8309 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: sp95_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.38   # D3b, 77,8309 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: sp98_rupture_debut_ts
+        description: >
+          Début de la rupture de sp98, en UTC : la source l'étiquette +00:00 mais l'exprime en heure de Paris (J8-M4c),
+          l'étiquette est ignorée et l'heure de Paris convertie (to_utc_timestamp). Limite : une heure ambiguë (passage
+          à l'heure d'hiver) est lue en heure d'été ; une heure inexistante (passage à l'heure d'été) est décalée de la
+          durée du saut (02:30 donne 01:30 UTC), alors que maj des prix l'avance à 03:00 (shift_forward). 0 valeur
+          concernée au 23/11 (mesure J8, témoin vérifié).
+        data_tests:
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.23   # D3b, 47,6439 % au 23/11 (J8-M1)
+              config:
+                severity: error
+      - name: sp98_rupture_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [definitive, temporaire]
+          - dbt_utils.not_null_proportion:
+              arguments:
+                at_least: 0.23   # D3b, 47,6439 % au 23/11 (J8-M1)
+              config:
+                severity: error
       - name: fichier_source
         description: Fichier Parquet chargé dans le bronze (traçabilité).
       - name: charge_ts
@@ -264,6 +402,26 @@ unit_tests:
       rows:
         - {station_id: 1000001, carburant: gazole, prix_maj_ts: "2026-11-16 10:19:44", prix_eur_litre: 1.789, collecte_ts: "2026-11-16 10:30:03", fichier_source: "dbfs:/f1.parquet", charge_ts: "2026-11-16 12:20:31"}
         - {station_id: 1000002, carburant: e85, prix_maj_ts: "2026-03-29 01:30:00", prix_eur_litre: 0.659, collecte_ts: "2026-03-29 02:15:00", fichier_source: "dbfs:/f2.parquet", charge_ts: "2026-03-30 12:20:31"}
+  - name: test_rupture_debut_heure_de_paris_convertie_en_utc
+    description: >
+      <carburant>_rupture_debut est étiqueté +00:00 mais exprimé en heure de Paris (J8-M4c) : l'étiquette est ignorée,
+      l'heure de Paris convertie en UTC. Été et hiver ; heures ambiguë (25/10, heure d'été retenue) et inexistante
+      (29/03, décalée de la durée du saut) figées sur le comportement mesuré de Databricks le 23/11.
+    model: stg_carburants__station_etats
+    given:
+      - input: source('carburant_bronze', 'station_etat_flux')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-23 10:00:00", etat_hash: h1, etat: '{"gazole_rupture_debut": "2026-03-29T03:30:00+00:00", "gazole_rupture_type": "temporaire"}'}
+          - {station_id: 2, collecte_ts: "2026-11-23 10:00:00", etat_hash: h2, etat: '{"gazole_rupture_debut": "2026-11-20T10:00:00+00:00", "gazole_rupture_type": "definitive"}'}
+          - {station_id: 3, collecte_ts: "2026-11-23 10:00:00", etat_hash: h3, etat: '{"gazole_rupture_debut": "2026-10-25T02:30:00+00:00", "gazole_rupture_type": "temporaire"}'}
+          - {station_id: 4, collecte_ts: "2026-11-23 10:00:00", etat_hash: h4, etat: '{"gazole_rupture_debut": "2026-03-29T02:30:00+00:00", "gazole_rupture_type": "temporaire"}'}
+    expect:
+      rows:
+        - {station_id: 1, gazole_rupture_debut_ts: "2026-03-29 01:30:00", gazole_rupture_type: temporaire}
+        - {station_id: 2, gazole_rupture_debut_ts: "2026-11-20 09:00:00", gazole_rupture_type: definitive}
+        - {station_id: 3, gazole_rupture_debut_ts: "2026-10-25 00:30:00", gazole_rupture_type: temporaire}
+        - {station_id: 4, gazole_rupture_debut_ts: "2026-03-29 01:30:00", gazole_rupture_type: temporaire}
+
   - name: test_coordonnees_divisees_par_100000
     description: latitude et longitude de la source sont des chaînes multipliées par 100 000, entières ou décimales ; une valeur non numérique donne NULL (try_cast).
     model: stg_carburants__station_etats
