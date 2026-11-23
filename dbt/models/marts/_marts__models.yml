@@ -43,6 +43,41 @@ models:
         description: Millésime de la ligne Filosofi jointe ; NULL sans ligne Filosofi.
       - name: cog_millesime
 
+  - name: dim_station
+    description: >
+      SCD2 des attributs descriptifs des stations, une ligne par station et par version des attributs suivis (D5 de J7),
+      reconstruite à chaque build depuis le journal des versions (stg_carburants__station_etats, îlots), sans dbt snapshot.
+      Ruptures, horaires et carburants disponibles ne créent pas de version. Intervalles semi-ouverts
+      [debut_validite_ts, fin_validite_ts[.
+    data_tests:
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: debut_validite_ts
+            upper_bound_column: "coalesce(fin_validite_ts, timestamp '9999-12-31')"
+            partition_by: station_id
+            gaps: not_allowed
+    columns:
+      - name: station_version_id
+        description: Clé de substitution (station_id, debut_validite_ts).
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_tests: [not_null]
+      - name: version_num
+        description: Numéro de version de la station, 1 pour la plus ancienne.
+      - name: services
+        description: services_service de la source en tableau trié (D6) ; l'ordre de la source ne crée pas de version.
+      - name: debut_validite_ts
+        description: >
+          Première observation de la version par la collecte (D8), pas l'heure réelle du changement : la collecte
+          passe toutes les 15 minutes et s'arrête avec le poste.
+        data_tests: [not_null]
+      - name: fin_validite_ts
+        description: Début de la version suivante ; NULL pour la dernière version connue.
+      - name: est_courante
+        description: Dernière version connue (D9), pas « station ouverte » ; une station disparue du flux garde sa version courante.
+      - name: charge_ts
+        description: Heure de chargement au bronze de la ligne d'origine de la version.
+
 unit_tests:
   - name: test_dim_commune_parent_arm_et_com
     description: un ARM reçoit son code parent (comparent), un COM se reçoit lui-même.
@@ -132,3 +167,70 @@ unit_tests:
     expect:
       rows:
         - {commune_code: "01001", niveau_vie_median_eur: 25000.0, filosofi_millesime: 2023}
+
+  - name: test_dim_station_rupture_seule_sans_version
+    description: deux lignes qui ne diffèrent que par ruptures_json (etat_hash différent) donnent une seule version.
+    model: dim_station
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-16 10:00:00", etat_hash: h1, adresse: "1 rue A", ruptures_json: null}
+          - {station_id: 1, collecte_ts: "2026-11-16 10:15:00", etat_hash: h2, adresse: "1 rue A", ruptures_json: '[{"nom":"Gazole"}]'}
+    expect:
+      rows:
+        - {station_id: 1, version_num: 1, debut_validite_ts: "2026-11-16 10:00:00", fin_validite_ts: null, est_courante: true}
+
+  - name: test_dim_station_a_b_a_trois_versions
+    description: A, puis B, puis A donnent trois versions (retour à une valeur antérieure, cas du 05/11).
+    model: dim_station
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-05 08:00:00", etat_hash: h1, adresse: "1 rue A"}
+          - {station_id: 1, collecte_ts: "2026-11-05 09:00:00", etat_hash: h2, adresse: "2 rue B"}
+          - {station_id: 1, collecte_ts: "2026-11-05 10:00:00", etat_hash: h3, adresse: "1 rue A"}
+    expect:
+      rows:
+        - {station_id: 1, version_num: 1, adresse: "1 rue A", debut_validite_ts: "2026-11-05 08:00:00"}
+        - {station_id: 1, version_num: 2, adresse: "2 rue B", debut_validite_ts: "2026-11-05 09:00:00"}
+        - {station_id: 1, version_num: 3, adresse: "1 rue A", debut_validite_ts: "2026-11-05 10:00:00"}
+
+  - name: test_dim_station_services_reordonnes_sans_version
+    description: services réordonné seul (etat_hash différent) ne crée pas de version.
+    model: dim_station
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-05 08:00:00", etat_hash: h1, adresse: "1 rue A", services_json: '["Boutique","Toilettes"]'}
+          - {station_id: 1, collecte_ts: "2026-11-05 09:00:00", etat_hash: h2, adresse: "1 rue A", services_json: '["Toilettes","Boutique"]'}
+    expect:
+      rows:
+        - {station_id: 1, version_num: 1, debut_validite_ts: "2026-11-05 08:00:00", est_courante: true}
+
+  - name: test_dim_station_bornes_contigues_par_station
+    description: >
+      la version précédente se termine exactement au début de la suivante ; la dernière de chaque station a
+      fin_validite_ts NULL et est_courante vrai, même quand une autre station a une observation plus tardive.
+    model: dim_station
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 1, collecte_ts: "2026-11-05 08:00:00", etat_hash: h1, adresse: "1 rue A"}
+          - {station_id: 1, collecte_ts: "2026-11-05 09:00:00", etat_hash: h2, adresse: "2 rue B"}
+          - {station_id: 2, collecte_ts: "2026-11-05 10:00:00", etat_hash: h3, adresse: "3 rue C"}
+    expect:
+      rows:
+        - {station_id: 1, version_num: 1, debut_validite_ts: "2026-11-05 08:00:00", fin_validite_ts: "2026-11-05 09:00:00", est_courante: false}
+        - {station_id: 1, version_num: 2, debut_validite_ts: "2026-11-05 09:00:00", fin_validite_ts: null, est_courante: true}
+        - {station_id: 2, version_num: 1, debut_validite_ts: "2026-11-05 10:00:00", fin_validite_ts: null, est_courante: true}
+
+  - name: test_dim_station_ligne_unique_version_courante
+    description: une station à une seule ligne donne une version courante, version_num 1.
+    model: dim_station
+    given:
+      - input: ref('stg_carburants__station_etats')
+        rows:
+          - {station_id: 7, collecte_ts: "2026-11-16 10:00:00", etat_hash: h1, adresse: "7 rue G", charge_ts: "2026-11-16 12:20:31"}
+    expect:
+      rows:
+        - {station_id: 7, version_num: 1, adresse: "7 rue G", debut_validite_ts: "2026-11-16 10:00:00", fin_validite_ts: null, est_courante: true, charge_ts: "2026-11-16 12:20:31"}
