@@ -33,7 +33,7 @@ description: "Conventions dbt du projet (nommage, couches, matérialisation, acc
 ## Sources, snapshots, exposures
 
 - `freshness` déclarée sur les sources bronze.
-- `dim_station` en snapshot SCD2, stratégie `check` sur services et localisation.
+- SCD2 : `dbt snapshot` par défaut ; quand la source fournit déjà un journal complet des versions (cas de `station_etat_flux`), modèle reconstruit par îlots, table complète à chaque build (D2 de J7). `dim_station` relève de cette exception.
 - Exposures : dashboard Qlik et agent IA.
 
 ## CI
