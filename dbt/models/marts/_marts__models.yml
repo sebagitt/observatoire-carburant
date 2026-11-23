@@ -6,18 +6,28 @@ models:
       Une ligne par commune (COM) ou arrondissement municipal (ARM) du COG var('cog_millesime') ; COMA et COMD exclus
       (ils se rattachent à leur parent). Filosofi var('filosofi_millesime') joint sur (geo_object = commune_type,
       codgeo = commune_code) : sans ligne Filosofi ou valeur masquée, la valeur reste NULL (pas de table de mouvements).
+    config:
+      access: public
+      contract:
+        enforced: true
     columns:
       - name: commune_code
+        data_type: string
+        constraints:
+          - type: not_null
         data_tests: [unique, not_null]
       - name: commune_type
+        data_type: string
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: [COM, ARM]
       - name: commune_nom
+        data_type: string
         data_tests: [not_null]
       - name: commune_parent_code
+        data_type: string
         description: comparent pour un ARM, le code lui-même pour un COM.
         data_tests:
           - not_null
@@ -26,22 +36,32 @@ models:
                 to: ref('dim_commune')
                 field: commune_code
       - name: departement_code
+        data_type: string
         description: Mesure du 17/11 avant écriture, 0 COM ou ARM sans département ; not_null ajouté.
         data_tests: [not_null]
       - name: departement_nom
+        data_type: string
       - name: region_code
+        data_type: string
       - name: region_nom
+        data_type: string
       - name: niveau_vie_median_eur
+        data_type: double
         description: Filosofi med_sl, euros par an ; NULL si masqué ou sans ligne Filosofi (107 COM, fiche filosofi, piège 4).
       - name: niveau_vie_median_statut
+        data_type: string
         description: Filosofi med_sl_statut (C, confidentiel).
       - name: taux_pauvrete_pct
+        data_type: double
         description: Filosofi pr_md60, taux de pauvreté au seuil de 60 %, en pourcentage.
       - name: taux_pauvrete_statut
+        data_type: string
         description: Filosofi pr_md60_statut.
       - name: filosofi_millesime
+        data_type: int
         description: Millésime de la ligne Filosofi jointe ; NULL sans ligne Filosofi.
       - name: cog_millesime
+        data_type: int
 
   - name: dim_station
     description: >
@@ -56,38 +76,88 @@ models:
             upper_bound_column: "coalesce(fin_validite_ts, timestamp '9999-12-31')"
             partition_by: station_id
             gaps: not_allowed
+    config:
+      access: public
+      contract:
+        enforced: true
     columns:
       - name: station_version_id
+        data_type: string
+        constraints:
+          - type: not_null
         description: Clé de substitution (station_id, debut_validite_ts).
         data_tests: [unique, not_null]
       - name: station_id
+        data_type: bigint
+        constraints:
+          - type: not_null
         data_tests: [not_null]
       - name: version_num
+        data_type: bigint
         description: Numéro de version de la station, 1 pour la plus ancienne.
       - name: services
+        data_type: array<string>
         description: services_service de la source en tableau trié (D6) ; l'ordre de la source ne crée pas de version.
       - name: debut_validite_ts
+        data_type: timestamp
+        constraints:
+          - type: not_null
         description: >
           Première observation de la version par la collecte (D8), pas l'heure réelle du changement : la collecte
           passe toutes les 15 minutes et s'arrête avec le poste.
         data_tests: [not_null]
       - name: fin_validite_ts
+        data_type: timestamp
         description: Début de la version suivante ; NULL pour la dernière version connue.
       - name: est_courante
+        data_type: boolean
         description: Dernière version connue (D9), pas « station ouverte » ; une station disparue du flux garde sa version courante.
       - name: charge_ts
+        data_type: timestamp
         description: Heure de chargement au bronze de la ligne d'origine de la version.
+      - name: adresse
+        data_type: string
+      - name: code_postal
+        data_type: string
+      - name: ville
+        data_type: string
+      - name: code_departement
+        data_type: string
+      - name: departement_nom
+        data_type: string
+      - name: code_region
+        data_type: string
+      - name: region_nom
+        data_type: string
+      - name: latitude
+        data_type: double
+      - name: longitude
+        data_type: double
+      - name: type_route_code
+        data_type: string
+      - name: automate_24_24
+        data_type: boolean
 
   - name: fct_ruptures
     description: >
       Une ligne par événement de rupture (station, carburant, rupture_debut_ts), reconstruit depuis le journal des
       versions. Fin observée au quart d'heure près (première version de la station sans l'événement), sauf pendant
       les trous de collecte ; commune depuis int_stations__commune.
+    config:
+      access: public
+      contract:
+        enforced: true
     columns:
       - name: rupture_id
+        data_type: string
+        constraints:
+          - type: not_null
         description: Clé de substitution (station_id, carburant, rupture_debut_ts).
         data_tests: [unique, not_null]
       - name: station_id
+        data_type: bigint
+        constraints:
+          - type: not_null
         data_tests:
           - not_null
           - relationships:
@@ -95,27 +165,41 @@ models:
                 to: ref('dim_station')
                 field: station_id
       - name: carburant
+        data_type: string
+        constraints:
+          - type: not_null
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: [e10, e85, gazole, gplc, sp95, sp98]
       - name: rupture_debut_ts
+        data_type: timestamp
+        constraints:
+          - type: not_null
         description: Début annoncé par la source, en UTC (heure de Paris convertie, voir le staging).
         data_tests: [not_null]
       - name: rupture_type
+        data_type: string
         description: Dernier type observé (definitive ou temporaire) ; un seul type par événement attendu (test en warn).
       - name: premiere_observation_ts
+        data_type: timestamp
+        constraints:
+          - type: not_null
         description: Première version de la station où l'événement est vu.
       - name: derniere_observation_ts
+        data_type: timestamp
         description: Dernière version de la station où l'événement est vu.
       - name: fin_observee_ts
+        data_type: timestamp
         description: >
           collecte_ts de la première version de la station postérieure à derniere_observation_ts (l'événement y a
           disparu) ; NULL si l'événement est présent dans la dernière version.
       - name: est_en_cours
+        data_type: boolean
         description: Vrai si l'événement est présent dans la dernière version connue de la station (fin NULL).
       - name: commune_code
+        data_type: string
         description: Commune de la station (int_stations__commune) ; NULL si la station n'est pas rattachée.
         data_tests:
           - relationships:
