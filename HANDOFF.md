@@ -25,7 +25,19 @@ J9 est clos. Prochaine séance : section 1.
 ### Tests et commits
 - `make test-tout` : 462 + 73 + 5 = **540** (13:28:06 puis 14:48:14 en clôture, code retour 0 les deux fois). Les unit tests et tests de données dbt tournent sur Databricks, hors de ce total.
 - Commits du 24/11 : `d3753f5`, `c5d1201`, `fa5d1cf`, plus le commit de ce HANDOFF.
-- État du dépôt : `origin/main` à `052cbb1` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
+- État du dépôt : `origin/main` à `052cbb1` au début de la séance ; push des commits de J9 fait à 15:18:50, `git ls-remote` égal à `d6709ff`.
+
+### J10 commencé le 24/11 (STOP 0 fait, rien de déployé)
+Spécification : `docs/journal/J10_spec.md` (section 9b). Mesures : `docs/journal/J10_stop0/` (K0 à K2 à 15:56 ; K3 et parse à 16:05 ; K4 et K5 de 16:17 à 16:25). Image, compose et DAG inchangés.
+- G1 retenue, venv dédié dans l'image : K3, `requirements-dbt.txt` installé en 40 s sur Python 3.12.11, aucun conflit ; dbt-core 1.12.6, dbt-databricks 1.13.0, dbt-spark 1.10.3 ; `PIP_USER=false` nécessaire.
+- G2 retenue, Asset `carburant_bronze` : K2, `airflow.sdk.Asset` disponible en 3.0.6.
+- G3 retenue, `dbt build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour` : K5, 1 min 41 s (16:20:16 à 16:21:57), PASS 61, ERROR 0, 11 comptes relus égaux aux attendus ; `+mart_prix_commune_jour` non mesuré.
+- G4 retenue, forme précisée : `dbt/` monté en lecture seule sur `/opt/airflow/dbt` ; chemins par variables d'environnement (`DBT_PROJECT_DIR`, `DBT_PROFILES_DIR` sur `/opt/airflow/dbt`, `DBT_TARGET_PATH`, `DBT_LOG_PATH` sous `/tmp`, `DBT_SEND_ANONYMOUS_USAGE_STATS=false`) ; parse, debug et build sans rien écrire dans `dbt/` (`git status` identique).
+- G5 confirmée : `dbt debug` « All checks passed! » avec l'environnement existant du conteneur, aucun nouveau secret.
+- G7 tenue : maximum cumulé 2,897 Gio (airflow 2,328, jetable 0,569), sous 3,5 Gio.
+- G6 et G8 inchangées.
+- Ordre de déploiement : `airflow/dags/` est monté en direct ; DAG `transformation_dbt` et `outlets` de `chargement_bronze` écrits seulement avec le Dockerfile et le compose, dans la séance de la recréation, avant 12:20.
+- État du dépôt : `origin/main` à `d6709ff` ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
 ## 0a. Archive du 2026-11-23, J8
 
@@ -262,9 +274,11 @@ Archive : lignes périmées (curseurs, totaux, à faire) ; le bloc 0 fait foi.
 
 ## 1. Prochaine séance et reprises sans séance
 
-### Prochaine séance (après J9)
-1. Contrôles habituels de reprise (points 1 à 4 ci-dessous), puis `git ls-remote origin refs/heads/main` : push des commits de J9 et de ce HANDOFF à vérifier.
-2. Spécification de J10 par le chat. Candidats, dans l'ordre : orchestration de dbt après `chargement_bronze`, puis Qlik. Rien n'est écrit avant accord.
+### Prochaine séance (J10 en cours)
+1. Contrôles de reprise habituels (points 1 à 4 ci-dessous), puis `git ls-remote origin refs/heads/main`.
+2. Si un chargement a eu lieu : build en chaîne manuel (règle « Après chaque chargement du bronze » ci-dessous).
+3. J10 section 5 en TDD : `ingestion/taches_dbt.py` et `ingestion/tests/test_taches_dbt.py` (aucun déploiement, aucun DAG ne les importe).
+4. Dans une séance qui couvre 12:20 UTC : `pg_dump` des bases `collecte` et `airflow`, puis Dockerfile, compose, DAG `transformation_dbt` et `outlets` de `chargement_bronze` ENSEMBLE, recréation en trois temps AVANT 12:20, puis observation du premier run déclenché par l'Asset (attendus recalculés, comptes relus).
 
 ### Après chaque chargement du bronze (en séance, jamais en reprise sans séance)
 - `make dbt ARGS="build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour"` : parents en table et enfants ensemble (un enfant reconstruit seul casse son `relationships`, J9).
@@ -584,6 +598,8 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur (par 
 
 ## 7. Points ouverts
 
+- J10 : `dbt debug` sort en code 2 avec `--target-path` (cause probable : option refusée, non confirmée) ; les chemins passent par `DBT_TARGET_PATH` et `DBT_LOG_PATH`.
+- J10 : 24/11, `.env` lu pour un contrôle de secrets (rien affiché) ; règle rappelée : contrôle par motifs seulement, entrée dans `learnings.md`.
 - J9 : refus de l'entrepôt du 24/11 (`BAD_REQUEST: Cannot create the resource`, mesuré de 07:53:22 à 07:55:04, OK vers 09:18 selon les sondes de l'utilisateur) : cause inconnue.
 - J9 : dbt non orchestré : après chaque chargement, les tables de `carburant_gold` sont en retard sur le bronze et un enfant reconstruit seul casse son `relationships` (station 62112001, entrée le 24/11). Candidat de J10.
 - J9 : bornes de prix relatives au carburant reportées : 157 lignes hors [80 %, 130 %] de la médiane de leur carburant, dont 98 en E85 (M2b).
