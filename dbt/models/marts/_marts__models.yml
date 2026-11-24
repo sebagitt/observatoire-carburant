@@ -207,6 +207,86 @@ models:
                 to: ref('dim_commune')
                 field: commune_code
 
+  - name: fct_prix
+    description: >
+      Une ligne par version de prix (station, carburant, prix_maj_ts). Intervalles semi-ouverts
+      [valide_depuis_ts, valide_jusqu_ts[ par station et carburant ; prix hors bornes gardés avec est_plausible faux ;
+      commune depuis int_stations__commune.
+    config:
+      access: public
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: valide_depuis_ts
+            upper_bound_column: "coalesce(valide_jusqu_ts, timestamp '9999-12-31')"
+            partition_by: station_id, carburant
+            gaps: not_allowed
+      - dbt_utils.expression_is_true:
+          name: fct_prix_valide_depuis_avant_premiere_observation
+          arguments:
+            expression: "valide_depuis_ts <= premiere_observation_ts"
+          config:
+            severity: error
+    columns:
+      - name: prix_version_id
+        data_type: string
+        constraints:
+          - type: not_null
+        description: Clé de substitution (station_id, carburant, prix_maj_ts).
+        data_tests: [unique, not_null]
+      - name: station_id
+        data_type: bigint
+        constraints:
+          - type: not_null
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_station')
+                field: station_id
+      - name: carburant
+        data_type: string
+        constraints:
+          - type: not_null
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [gazole, e10, sp98, e85, sp95, gplc]
+      - name: prix_eur_litre
+        data_type: decimal(6,3)
+        description: Prix en euros par litre.
+      - name: valide_depuis_ts
+        data_type: timestamp
+        constraints:
+          - type: not_null
+        description: prix_maj_ts de la version, en UTC.
+        data_tests: [not_null]
+      - name: valide_jusqu_ts
+        data_type: timestamp
+        description: prix_maj_ts de la version suivante du même couple (station, carburant) ; NULL pour la dernière.
+      - name: est_courant
+        data_type: boolean
+        description: Vrai pour la dernière version connue du couple (station, carburant).
+      - name: est_plausible
+        data_type: boolean
+        description: Vrai si le prix est entre les variables prix_plausible_min et prix_plausible_max, bornes incluses.
+      - name: premiere_observation_ts
+        data_type: timestamp
+        constraints:
+          - type: not_null
+        description: collecte_ts de la version (premier passage de collecte qui l'a vue).
+      - name: commune_code
+        data_type: string
+        description: Commune de la station (int_stations__commune) ; NULL si la station n'est pas rattachée.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_commune')
+                field: commune_code
+
 unit_tests:
   - name: test_dim_commune_parent_arm_et_com
     description: un ARM reçoit son code parent (comparent), un COM se reçoit lui-même.
@@ -452,3 +532,112 @@ unit_tests:
       rows:
         - {station_id: 1, carburant: gplc, rupture_debut_ts: "2026-11-20 07:00:00", premiere_observation_ts: "2026-11-20 08:00:00", fin_observee_ts: "2026-11-20 10:00:00", est_en_cours: false}
         - {station_id: 1, carburant: gplc, rupture_debut_ts: "2026-11-20 09:45:00", premiere_observation_ts: "2026-11-20 10:00:00", fin_observee_ts: null, est_en_cours: true}
+
+  - name: fct_prix_versions_contigues
+    description: trois prix successifs donnent trois versions contiguës, la dernière sans fin.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: a1, station_id: 1, carburant: gazole, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 1.900, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: a2, station_id: 1, carburant: gazole, prix_maj_ts: "2026-11-02 08:00:00", prix_eur_litre: 1.950, collecte_ts: "2026-11-02 08:15:00"}
+          - {prix_id: a3, station_id: 1, carburant: gazole, prix_maj_ts: "2026-11-03 08:00:00", prix_eur_litre: 1.920, collecte_ts: "2026-11-03 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: a1, valide_depuis_ts: "2026-11-01 08:00:00", valide_jusqu_ts: "2026-11-02 08:00:00", premiere_observation_ts: "2026-11-01 08:15:00", commune_code: "44109"}
+        - {prix_version_id: a2, valide_depuis_ts: "2026-11-02 08:00:00", valide_jusqu_ts: "2026-11-03 08:00:00", premiere_observation_ts: "2026-11-02 08:15:00", commune_code: "44109"}
+        - {prix_version_id: a3, valide_depuis_ts: "2026-11-03 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-03 08:15:00", commune_code: "44109"}
+
+  - name: fct_prix_derniere_version_courante
+    description: seule la dernière version est courante.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: a1, station_id: 1, carburant: gazole, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 1.900, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: a2, station_id: 1, carburant: gazole, prix_maj_ts: "2026-11-02 08:00:00", prix_eur_litre: 1.950, collecte_ts: "2026-11-02 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 1, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: a1, est_courant: false}
+        - {prix_version_id: a2, est_courant: true}
+
+  - name: fct_prix_hors_bornes_garde_la_ligne
+    description: un prix hors bornes reste dans le fait, marqué non plausible.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: b1, station_id: 2, carburant: e10, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 0.100, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: b2, station_id: 3, carburant: e10, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 9.990, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: b3, station_id: 4, carburant: e10, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 1.990, collecte_ts: "2026-11-01 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 2, commune_code: "44109"}
+          - {station_id: 3, commune_code: "44109"}
+          - {station_id: 4, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: b1, est_plausible: false}
+        - {prix_version_id: b2, est_plausible: false}
+        - {prix_version_id: b3, est_plausible: true}
+
+  - name: fct_prix_frontieres_de_plausibilite
+    description: les bornes 0,5 et 3,5 sont incluses, 0,499 et 3,501 sont exclues.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: c1, station_id: 5, carburant: gplc, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 0.500, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: c2, station_id: 6, carburant: gplc, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 0.499, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: c3, station_id: 7, carburant: sp98, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 3.500, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: c4, station_id: 8, carburant: sp98, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 3.501, collecte_ts: "2026-11-01 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 5, commune_code: "44109"}
+          - {station_id: 6, commune_code: "44109"}
+          - {station_id: 7, commune_code: "44109"}
+          - {station_id: 8, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: c1, est_plausible: true}
+        - {prix_version_id: c2, est_plausible: false}
+        - {prix_version_id: c3, est_plausible: true}
+        - {prix_version_id: c4, est_plausible: false}
+
+  - name: fct_prix_carburants_independants
+    description: deux carburants d'une même station ont des versions indépendantes.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: d1, station_id: 9, carburant: gazole, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 1.900, collecte_ts: "2026-11-01 08:15:00"}
+          - {prix_id: d2, station_id: 9, carburant: e10, prix_maj_ts: "2026-11-02 08:00:00", prix_eur_litre: 1.800, collecte_ts: "2026-11-02 08:15:00"}
+          - {prix_id: d3, station_id: 9, carburant: gazole, prix_maj_ts: "2026-11-03 08:00:00", prix_eur_litre: 1.950, collecte_ts: "2026-11-03 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 9, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: d1, valide_jusqu_ts: "2026-11-03 08:00:00"}
+        - {prix_version_id: d2, valide_jusqu_ts: null}
+        - {prix_version_id: d3, valide_jusqu_ts: null}
+
+  - name: fct_prix_station_sans_commune_gardee
+    description: une station sans commune garde ses prix, commune_code NULL.
+    model: fct_prix
+    given:
+      - input: ref('stg_carburants__prix')
+        rows:
+          - {prix_id: e1, station_id: 10, carburant: gazole, prix_maj_ts: "2026-11-01 08:00:00", prix_eur_litre: 1.900, collecte_ts: "2026-11-01 08:15:00"}
+      - input: ref('int_stations__commune')
+        rows:
+          - {station_id: 99, commune_code: "44109"}
+    expect:
+      rows:
+        - {prix_version_id: e1, commune_code: null}
