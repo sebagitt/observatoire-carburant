@@ -1,9 +1,37 @@
-# HANDOFF : fin de séance du 2026-11-23, dernière mesure à 15:59 UTC (J7 et J8 clos : error_code, dim_station, ruptures typées, fct_ruptures, contracts et garde des accès)
-## 0. Mise à jour du 2026-11-23, J8 (à lire en premier)
+# HANDOFF : fin de séance du 2026-11-24, bronze et freshness relus à 14:01 UTC (J9 clos : fct_prix, mart_prix_commune_jour, bornes et seuils en variables)
+## 0. Mise à jour du 2026-11-24, J9 (à lire en premier)
 
-Spécifications : `docs/journal/J7_spec.md` (section 12b : D, E, C) et `docs/journal/J8_spec.md` (section 9b). Debrief : `docs/journal/J8.md`. Mesures du STOP 0 de J8 : `docs/journal/J8_stop0/`. Guide : `docs/journal/guides/J8_guide.md`. Toutes les heures de ce fichier sont en UTC.
+Spécification : `docs/journal/J9_spec.md` (révisée le 24/11, section 9b : décisions après le STOP 0 ; version du 23/11 dans `J9_spec_v1_20261123.md`). Debrief : `docs/journal/J9.md`. Mesures : `docs/journal/J9_stop0/`. Guide : `docs/journal/guides/J9_guide.md`. Toutes les heures de ce fichier sont en UTC.
 
-J7 et J8 sont clos. Prochaine séance : section 1.
+J9 est clos. Prochaine séance : section 1.
+
+### Reprise du 24/11
+- `origin/main` égal à `HEAD` (`052cbb1`) : push de J8 confirmé par `git ls-remote`. Identifiants des conteneurs égaux à la section 2. Pause du 23/11 16:15 au 24/11 07:50 (run de 16:30 rejoué, success). Mémoire d'airflow 2,186 Gio à 07:53.
+- Entrepôt refusé (`BAD_REQUEST: Cannot create the resource, please try again later.`) : mesures de CC, `make lire-bronze` et `source freshness` de 07:53:22 à 07:55:04 (4 essais) ; sondes de l'utilisateur (`make bootstrap-controles` lancé par l'utilisateur, heures relevées en heure de Paris et converties) : KO vers 08:21, OK vers 09:18 ; première requête acceptée mesurée par CC à 09:58:41. Cause : inconnue.
+- `chargement_bronze` du 24/11 12:20 en success (12:20:00 à 12:21:23), curseurs au 2026-11-24 10:00.
+
+### STOP 0 et décisions (9b de la spec)
+- M1 : 6 codes de carburant identiques dans les prix et les ruptures. M3 : 272 527 lignes, 9 737 stations, `maj_apres_collecte` 0. M5 : `midi_utc` 10:00 le 23/10, 11:00 à partir du 29/10 ; écart de 15 minutes autour de midi les jours de collecte continue. M2 : 0 prix hors [0,5 ; 3,5].
+- F3 bornes 0,5 et 3,5 incluses ; F5 écart autour de midi au plus 30 minutes ; F8 âge maximal 90 jours ; F9 prix en rupture à midi exclus ; ajout de `premiere_observation_ts` dans `fct_prix`.
+
+### Réalisé
+- Commit `d3753f5` : bornes de prix plausibles en variables (`prix_plausible_min`, `prix_plausible_max`) ; SQL compilé du test identique à l'octet ; mutation borne à 2,0 : WARN 104 776.
+- Commit `c5d1201` : `fct_prix` public sous contract, 6 unit tests, test singulier « une version courante au plus », `mutually_exclusive_ranges` par (station, carburant) ; MP1 à MP3 rouges sur le seul test visé (MP3 après correction des données de test).
+- Commit `fa5d1cf` : `ecart_midi_max_minutes` et `prix_age_max_jours` ; `mart_prix_commune_jour` public sous contract, 7 unit tests ; MM1b, MM2 à MM5 rouges sur le seul test visé ; MM1 (midi en UTC) donne `1.8000→1.9000` au 24/10 et rougit aussi les 6 autres tests (section 7).
+- Parent figé : `fct_prix` reconstruit seul après le chargement de 12:20, `relationships` vers `dim_station` en FAIL 4 (station 62112001, première observation 24/11 09:30:01). Corrigé par le build en chaîne (section 1) : PASS 45, puis mart PASS 16.
+- Comptes relus égaux aux attendus recalculés (12:46 à 12:49) : `dim_station` 11 506 (9 856 courantes) ; `fct_ruptures` 41 095 événements (22 416 en cours) ; `fct_prix` 288 988 (34 380 courantes, 9 739 stations, 0 non plausible, 194 sans commune) ; `mart_prix_commune_jour` 224 961 lignes, 11 jours, 348 120 prix de station, 5 550 communes, 367 sans niveau de vie.
+- Fin de séance : `make lire-bronze` (14:01:08) `prix_flux` 288 988, `station_etat_flux` 35 461, max `collecte_ts` 2026-11-24 09:45:01, doublons 0 ; freshness 3 PASS à 14:01:39 (âge déduit de `max(collecte_ts)` : environ 4 h 16).
+
+### Tests et commits
+- `make test-tout` : 462 + 73 + 5 = **540** (13:28:06 puis 14:48:14 en clôture, code retour 0 les deux fois). Les unit tests et tests de données dbt tournent sur Databricks, hors de ce total.
+- Commits du 24/11 : `d3753f5`, `c5d1201`, `fa5d1cf`, plus le commit de ce HANDOFF.
+- État du dépôt : `origin/main` à `052cbb1` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
+
+## 0a. Archive du 2026-11-23, J8
+
+Archive : le bloc 0 fait foi. Spécifications : `docs/journal/J7_spec.md` (section 12b : D, E, C) et `docs/journal/J8_spec.md` (section 9b). Debrief : `docs/journal/J8.md`. Mesures du STOP 0 de J8 : `docs/journal/J8_stop0/`. Guide : `docs/journal/guides/J8_guide.md`. Toutes les heures de ce fichier sont en UTC.
+
+J7 et J8 sont clos.
 
 ### Reprise du 23/11
 - `chargement_bronze` des 20, 21 et 22/11 en success (celui du 22/11 rejoué le 23/11 de 07:52 à 07:54), puis run du 23/11 12:20 en success (12:20:00 à 12:20:48). `warehouses.start` accepté par `make lire-bronze` à 09:40 ; aucun refus depuis le 19/11.
@@ -25,11 +53,11 @@ J7 et J8 sont clos. Prochaine séance : section 1.
 - Commits du 23/11 : `29adcfd`, `1aef54c`, `0e84217`, `cd6933d`, `f0df100`, `38a7dd8`, `8d86f3f`, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `6abe30b` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0a. Archive du 2026-11-19, J7 partiel
+## 0b. Archive du 2026-11-19, J7 partiel
 
 Spécification : `docs/journal/J7_spec.md` (D3b et méthode de mutation tranchées en section 8). Debrief : `docs/journal/J7.md`. Mesures du STOP 0 : `docs/journal/J7_stop0/`. Toutes les heures de ce fichier sont en UTC.
 
-### Prochaine séance (faite le 23/11, voir bloc 0), dans l'ordre
+### Prochaine séance (faite le 23/11, voir bloc 0a), dans l'ordre
 1. Correction de l'`error_code` dans `assurer_entrepot` (`ingestion/adaptateurs_databricks.py`) : garder le type de l'exception et son `error_code` dans `ErreurBootstrap`, jamais le message ; TDD ; écriture dans `ingestion/` en fenêtre :01 à :14, hors run en cours.
 2. Section C de `docs/journal/J7_spec.md` : `dim_station` (attendu de lignes recalculé par M4 juste avant le build ; 11 479 au 19/11 16:06).
 
@@ -63,11 +91,11 @@ Spécification : `docs/journal/J7_spec.md` (D3b et méthode de mutation tranché
 - Commits du 19/11 : `1cb0bb8` test(dbt) retrait de l'entrée unit_test de la garde, `aba7a07` test(dbt) filet de taux de non-NULL, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `c2c2b8e` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0b. Archive du 2026-11-17, J6
+## 0c. Archive du 2026-11-17, J6
 
 Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés). Debrief : `docs/journal/J6.md`. Mesures du STOP 0 : `docs/journal/J6_stop0/`. Toutes les heures de ce fichier sont en UTC.
 
-### Reprise du jeudi 19/11 : faite, voir bloc 0
+### Reprise du jeudi 19/11 : faite, voir bloc 0b
 
 ### Référentiels au bronze
 - Rattachement station commune : `com_arm_code` du flux quotidien (option D, décision du 17/11). `make charger-station-commune` (10:02 UTC) : fichier de 6 492 958 octets, `fichier_date` 2026-11-16, table Postgres `ref_station_commune` à 9 952 lignes dont 9 941 avec code, validée par GX (minimum 9 500, format du code, station unique) et remplacée en une transaction.
@@ -85,7 +113,7 @@ Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés
 - Build `+dim_commune +int_stations__commune` (13:35:42 à 13:37:20 UTC) : PASS 91, WARN 1, ERROR 0. Le warn : `not_null_stg_carburants__station_etats_code_departement`, 31 lignes pour 4 stations (24 lignes au J5).
 - Garde des schémas : 4 tests ; nouveau test par dossier (`marts/` dans `carburant_gold`, `intermediate/` dans `carburant_silver`), sondes sans config sous `marts/` et `intermediate/`.
 - Mutations (copies hors dépôt, restauration prouvée par empreinte) : filtre de millésime, MT, MP, MD, MC, MG tuées ; **MI** (`and direct.commune_code is null` retiré) survit : mutant équivalent (le `coalesce` préfère déjà le COM, aucun code à plusieurs lignes COMD ou COMA dans le COG 2026), code inchangé (décision du 17/11).
-- **Le connecteur SQL de dbt démarre l'entrepôt de lui-même** : `STOPPED` à 08:06:57 UTC, `RUNNING` à 08:07:45 après `dbt source freshness` (une seule observation). Contraire à `execute_statement` du 13/11, refusé sur un entrepôt arrêté (bloc 0e).
+- **Le connecteur SQL de dbt démarre l'entrepôt de lui-même** : `STOPPED` à 08:06:57 UTC, `RUNNING` à 08:07:45 après `dbt source freshness` (une seule observation). Contraire à `execute_statement` du 13/11, refusé sur un entrepôt arrêté (bloc 0f).
 
 ### Heures des rapports
 - Les heures du matin du 17/11 étaient déjà en UTC (preuves : freshness `2026-11-17T08:07:34+00:00` ; Parquet `ref_cog_region__20261117T100326Z` écrit entre 10:03:16 et 10:03:41). Seul le premier rapport de l'après-midi était en heure locale (13:25 à 13:28 au lieu de 12:25 à 12:28 UTC) ; la correction qui avait converti 10:47 en 09:47 était fausse. Voir `learnings.md`.
@@ -95,7 +123,7 @@ Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés
 - Commits du 17/11 : `77b7009` docs (règles d'accord groupé), `6f4cdb9` feat(ingestion) rattachement station commune, `472fe45` feat(ingestion) référentiels vers le bronze, `28dec48` build cibles make, `11df76a` feat(dbt) sources et staging Insee, `8518325` feat(dbt) staging du rattachement, `03e5825` feat(dbt) dim_commune, `0739187` feat(dbt) rattachement des stations, `a65211e` test(dbt) garde intermediate et marts, `65cdc14` docs(fiches) flux quotidien et com_arm_code, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `2f3f4da` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0c. Archive du 2026-11-16, ancien J5 dbt
+## 0d. Archive du 2026-11-16, ancien J5 dbt
 Archive : le bloc 0 fait foi. Correction du 17/11 : les commits listés ci-dessous comme « non poussés à l'écriture » ont été poussés ensuite, `origin/main` à `2f3f4da` (`git ls-remote` du 17/11 à la reprise).
 
 Spécification : `docs/journal/J5_spec_dbt.md` (section 9 : écarts validés au STOP D). Debrief : `docs/journal/J5_dbt.md`.
@@ -123,13 +151,13 @@ Spécification : `docs/journal/J5_spec_dbt.md` (section 9 : écarts validés au 
 2. J6 : code commune des stations (aucun code INSEE dans le flux instantané) : jointure spatiale (lat/lon et contours), `cp` plus `ville` vers le COG (ambigu), `com_arm_code` du flux quotidien ; à trancher en J6. Référentiels COG et Filosofi.
 3. J7 : filet de taux de NULL sur les colonnes extraites du JSON (`get_json_object` renvoie NULL sans erreur sur une clé mal écrite) ; 12 colonnes de rupture typées ; snapshot `dim_station`.
 4. Garde : l'entrée `unit_test` de `TYPES_GARDES` est inerte (les unit tests sont sous `manifest["unit_tests"]`, et ne créent qu'une vue temporaire de session) : à retirer ou à documenter.
-5. Points ouverts hors J5 : voir le bloc 0c.
+5. Points ouverts hors J5 : voir le bloc 0d.
 
 ### Tests et commits
 - `make test-tout` (15:35 UTC, code retour 0) : conteneur 400, hôte 73, garde dbt 3, soit **476** passés.
 - `origin/main` à `9febba3` (`git ls-remote`, 15:36 UTC). Commits locaux de la séance, non poussés à l'écriture : `6e87cee`, `abf7ce1`, `50a3729`, `545618a`, `3763a66`, `465a9e1`, `2089c2d`, plus le commit de ce HANDOFF.
 
-## 0d. Archive du 2026-11-16, fin du 3e jour de J5
+## 0e. Archive du 2026-11-16, fin du 3e jour de J5
 Archive : le bloc 0 fait foi.
 
 ### Reprise de session (dans cet ordre)
@@ -177,11 +205,11 @@ Archive : le bloc 0 fait foi.
 - `make test-tout` (13:31 UTC, code retour 0) : conteneur 400 passés, hôte 73 passés.
 - `origin/main` à `b4f1a1a` à l'écriture (13:31 UTC) ; ces commits et celui du HANDOFF ont été poussés ensuite : `origin/main` à `9febba3` (`git ls-remote` du 16/11 à 13:57 UTC, aucun commit en avance).
 
-## 0e. Archive du 2026-11-13, fin du 2e jour de J5
+## 0f. Archive du 2026-11-13, fin du 2e jour de J5
 Archive : lignes périmées (curseurs, totaux, à faire) ; le bloc 0 fait foi.
 
 ### Reprise de session (dans cet ordre)
-1. `make reprise`, puis comparer les identifiants des conteneurs avec ceux de la section 2 (airflow `6bc98c61...`, postgres `9b3b0a0f...`). Après un arrêt, un rattrapage est attendu ; si `charger` échoue avec le garde-fou des 30 %, voir l'incident du 12/11 dans le bloc 0c.
+1. `make reprise`, puis comparer les identifiants des conteneurs avec ceux de la section 2 (airflow `6bc98c61...`, postgres `9b3b0a0f...`). Après un arrêt, un rattrapage est attendu ; si `charger` échoue avec le garde-fou des 30 %, voir l'incident du 12/11 dans le bloc 0d.
 2. `git status -sb` et `git log origin/main..HEAD --oneline` : relever l'état réel avant toute consigne qui cite des étapes déjà faites.
 3. Reprendre le rattrapage de `station_etat_flux` (ci-dessous), puis les petits changements de `charger_bronze`, puis le DAG.
 4. Ne jamais lire `.env`, ne jamais afficher `DATABRICKS_*`.
@@ -234,9 +262,14 @@ Archive : lignes périmées (curseurs, totaux, à faire) ; le bloc 0 fait foi.
 
 ## 1. Prochaine séance et reprises sans séance
 
-### Prochaine séance (après J8)
-1. Contrôles habituels de reprise (points 1 à 4 ci-dessous), puis `git ls-remote origin refs/heads/main` : push du HANDOFF de J8 à vérifier.
-2. STOP 0 de `docs/journal/J9_spec.md` (lecture seule) ; rien n'est écrit avant accord.
+### Prochaine séance (après J9)
+1. Contrôles habituels de reprise (points 1 à 4 ci-dessous), puis `git ls-remote origin refs/heads/main` : push des commits de J9 et de ce HANDOFF à vérifier.
+2. Spécification de J10 par le chat. Candidats, dans l'ordre : orchestration de dbt après `chargement_bronze`, puis Qlik. Rien n'est écrit avant accord.
+
+### Après chaque chargement du bronze (en séance, jamais en reprise sans séance)
+- `make dbt ARGS="build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour"` : parents en table et enfants ensemble (un enfant reconstruit seul casse son `relationships`, J9).
+- Attendus recalculés juste avant : `docs/journal/J7_stop0/m4.sql` (`versions_dim_services_tries`), `docs/journal/J8_stop0/attendu_fct.sql` (`evenements`), `docs/journal/J9_stop0/attendu_fct.sql`, puis `attendu_mart.sql` après le build de `fct_prix` ; relectures `docs/journal/J9_stop0/relu_*.sql`.
+- Jamais entre 12:15 et la fin du run `chargement_bronze` (vérifier par `list-runs` : aucun running).
 
 ### Reprises sans séance
 
@@ -262,6 +295,8 @@ Règles :
 
 ### Jours clos
 
+J9 est clos : bornes de prix plausibles en variables, `fct_prix` (288 988 versions), `mart_prix_commune_jour` (224 961 lignes, 11 jours), tous deux publics sous contract ; règle de build en chaîne après chaque chargement ; `make test-tout` 540.
+
 J8 est clos : 12 colonnes de rupture typées (heure de Paris convertie), `int_ruptures__observations`, `fct_ruptures`, contracts et accès `public` sur les trois marts, garde des accès ; `make test-tout` 540.
 
 J7 est clos : garde nettoyée, filet de taux de non-NULL, `error_code` dans l'échec de démarrage de l'entrepôt, skill SCD2, `dim_station` historisée.
@@ -276,10 +311,11 @@ J4 est clos sur le correctif de `charger` (`4fa7b1f`), la purge confirmée par l
 
 - Collecte en marche (DAG `collecte_flux`, toutes les 15 minutes, `catchup=False`) ; runs de 14:00, 14:15 et 14:30 UTC le 17/11 en `success`. `chargement_bronze` actif (12:20 UTC chaque jour), run du 17/11 de 12:20 en `success` (12:20:00 à 12:21:31).
 - Tests : `make test` (conteneur) 458, `make test-bootstrap` (hôte) 73, `make test-dbt-garde` (hôte, `.venv-dbt`) 4, soit **535** pour `make test-tout` (17/11 14:31 UTC, code retour 0).
-- Dépôt : `origin/main` à `6abe30b` au début de la séance du 23/11 ; commits du 23/11 listés au bloc 0 ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
-- Mise à jour du 23/11 : tests 540 (15:58 UTC) ; `carburant_gold` : tables `dim_commune` (34 920), `dim_station` (11 498), `fct_ruptures` (40 596) ; `carburant_silver` : vue `int_ruptures__observations` en plus ; détail au bloc 0.
-- Mise à jour du 19/11 : tests 535 (17:31 UTC), bronze à 233 649 et 31 799 lignes (16:05 UTC), curseurs au 2026-11-19 10:00, détail au bloc 0a ; le reste de cette section date du 17/11.
-- dbt (23/11) : `carburant_silver` : 7 vues de staging, les vues `int_stations__commune` et `int_ruptures__observations` ; `carburant_gold` : les tables `dim_commune`, `dim_station` et `fct_ruptures`, publiques sous contract. Détail au bloc 0.
+- Dépôt : `origin/main` à `052cbb1` au début de la séance du 24/11 ; commits du 24/11 listés au bloc 0 ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
+- Mise à jour du 24/11 : tests 540 ; `carburant_gold` (comptes relus de 12:47 à 12:49 UTC) : tables `dim_commune` (34 920, non reconstruite le 24/11), `dim_station` (11 506), `fct_ruptures` (41 095), `fct_prix` (288 988), `mart_prix_commune_jour` (224 961) ; bronze à 288 988 et 35 461 lignes (14:01 UTC), curseurs au 2026-11-24 10:00 ; détail au bloc 0.
+- Mise à jour du 23/11 : tests 540 (15:58 UTC) ; `carburant_gold` : tables `dim_commune` (34 920), `dim_station` (11 498), `fct_ruptures` (40 596) ; `carburant_silver` : vue `int_ruptures__observations` en plus ; détail au bloc 0a.
+- Mise à jour du 19/11 : tests 535 (17:31 UTC), bronze à 233 649 et 31 799 lignes (16:05 UTC), curseurs au 2026-11-19 10:00, détail au bloc 0b ; le reste de cette section date du 17/11.
+- dbt (24/11) : `carburant_silver` : 7 vues de staging, les vues `int_stations__commune` et `int_ruptures__observations` ; `carburant_gold` : les tables `dim_commune`, `dim_station`, `fct_ruptures`, `fct_prix` et `mart_prix_commune_jour`, publiques sous contract. Variables du projet : `cog_millesime`, `filosofi_millesime`, `prix_plausible_min` (0.5), `prix_plausible_max` (3.5), `ecart_midi_max_minutes` (30), `prix_age_max_jours` (90). Détail au bloc 0.
 - Bronze : `prix_flux`, `station_etat_flux` et les 5 tables `ref_*` (SHOW TABLES du 17/11 à 10:48 UTC). SHOW SCHEMAS : 10 noms, inchangés le 17/11 (relus à 13:10 et 13:17 UTC).
 - Lots Parquet : `charger` ne supprime plus ses fichiers (logique dans `ingestion/lots.py`). `purger_lots` (âge supérieur à 48 h ET prix par clé et états par station et hash retrouvés dans Postgres, confirmation écrite dans `purge_journal.jsonl`) **n'est branchée nulle part**. `data/lots` grossit (16:31 : 78 fichiers, 193 168 Kio ; les 48 fichiers du 09/11 pèsent 137 590 639 octets ; extrapolation, non mesurée sur 24 h : environ 550 Mo par jour). Les 20 lots d'avant le 09/11 (12 retrouvés par contenu dont 7 lots du 05/11 dont les états avaient été bloqués par le garde-fou, 8 du 23/10 avec une `maj` décalée de 2 h) ne sont ni rechargés ni purgés (décision de l'utilisateur).
 - Tables de référence dans la base `collecte` : `ref_cog_commune` 37 496 lignes (millésime 2026), `ref_cog_departement` 101, `ref_cog_region` 18, `ref_filosofi_commune` 34 813 lignes (millésime 2023, 34 768 communes plus 45 arrondissements). Clé de `ref_filosofi_commune` : (`millesime`, `geo_object`, `codgeo`).
@@ -299,7 +335,7 @@ observatoire-carburant-airflow-1   f12be32bd7bc75c3bc9ad08fc431a64e10600bc603c85
 observatoire-carburant-postgres-1  9b3b0a0f2f3f4fa44de11f957919be837b800d6054ded613a5631df8c1805c9d   created 2026-11-06T12:20:55Z
 volume                             observatoire-carburant_pg_data
 ```
-airflow recréé le 16/11 (bascule, procédure du bloc 0d) ; postgres inchangé depuis le 06/11. Commande : `docker inspect observatoire-carburant-airflow-1 observatoire-carburant-postgres-1 --format "{{.Name}} {{.Id}}"`. Si un identifiant change, un conteneur a été recréé : incident (métadonnées d'Airflow perdues, DAG en pause).
+airflow recréé le 16/11 (bascule, procédure du bloc 0e) ; postgres inchangé depuis le 06/11. Commande : `docker inspect observatoire-carburant-airflow-1 observatoire-carburant-postgres-1 --format "{{.Name}} {{.Id}}"`. Si un identifiant change, un conteneur a été recréé : incident (métadonnées d'Airflow perdues, DAG en pause).
 
 ### Relevés de mémoire du conteneur airflow
 
@@ -349,7 +385,7 @@ Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au p
 - dbt : staging en vue privée (`carburant_silver`), intermediate en vue `protected` (`carburant_silver`), marts en table `protected` (`carburant_gold`), contracts et `public` en J8. `charge_ts` = heure du bronze dans tous les modèles. Millésimes par variables (`cog_millesime`, `filosofi_millesime`).
 - dbt (16/11) : dbt Core 1.12.6 et dbt-databricks 1.13.0 sur l'hôte dans `.venv-dbt` (Python 3.12), séparé de `.venv` (3.14) et de l'image Airflow ; `dbt/profiles.yml` versionné en `env_var` seulement ; macro `generate_schema_name` (schéma personnalisé tel quel) ; staging en vue, privé, groupe `carburants`, dans `carburant_silver` ; tests rattachés à `carburant_silver` ; garde pytest des schémas sur le manifest (`dbt parse` sans connexion). Jamais de `dbt run` ni de `dbt build` sans `--select` ; `dbt ls` des schémas avant un premier run.
 - **`dbt/logs/` et `dbt/target/` ne sont jamais affichés en brut ni collés** (`dbt.log` contient l'hôte et le `http_path`) : recherche ciblée, hôte, `http_path` et identifiant d'entrepôt masqués.
-- Freshness des sources bronze sur `collecte_ts` (fraîcheur de la donnée, pas `_charge_ts`) : warn 28 h, error 52 h (calcul au bloc 0b).
+- Freshness des sources bronze sur `collecte_ts` (fraîcheur de la donnée, pas `_charge_ts`) : warn 28 h, error 52 h (calcul au bloc 0c).
 - Staging des états : coordonnées = clés `latitude` et `longitude` divisées par 100 000 (égales à `geom`, écart 0) ; ruptures, horaires et services gardés bruts (J7) ; `geom`, `services`, `horaires_jour` et les 12 clés de rupture par carburant non repris.
 - Databricks : catalogue `workspace`, Volume `carburant_bronze.depot`, schémas `carburant_*`. Les schémas `bronze`, `silver`, `gold`, `ci_silver`, `ci_gold` et `default` appartiennent à un AUTRE projet (EnergiScope) : jamais touchés (test sur les noms qualifiés).
 - Bootstrap : trois contrôles distincts (variables nommées, authentification dans un processus enfant tué après 30 s, entrepôt prêt par `SELECT 1` scruté au plus 5 fois), au plus 5 interrogations par requête, arrêt à la première erreur, aucune valeur sensible affichée. Un entrepôt serverless arrêté démarre à la première requête.
@@ -454,6 +490,18 @@ carburant_gold.fct_ruptures (table, public, contract) : rupture_id STRING, stati
                                    commune_code STRING
                                    grain (station_id, carburant, rupture_debut_ts) ; not_null : rupture_id, station_id,
                                    carburant, rupture_debut_ts, premiere_observation_ts
+carburant_gold.fct_prix (table, public, contract) : prix_version_id STRING, station_id BIGINT, carburant STRING,
+                                   prix_eur_litre DECIMAL(6,3), valide_depuis_ts TIMESTAMP, valide_jusqu_ts TIMESTAMP
+                                   (NULL pour la dernière version), est_courant BOOLEAN, est_plausible BOOLEAN,
+                                   premiere_observation_ts TIMESTAMP, commune_code STRING
+                                   grain (station_id, carburant, valide_depuis_ts) = (station, carburant, maj) ; intervalles
+                                   [valide_depuis_ts, valide_jusqu_ts[ sans chevauchement ni trou par (station_id, carburant) ;
+                                   not_null : prix_version_id, station_id, carburant, valide_depuis_ts, premiere_observation_ts
+carburant_gold.mart_prix_commune_jour (table, public, contract) : commune_code STRING, carburant STRING, jour DATE,
+                                   nb_stations BIGINT, prix_median_eur DECIMAL(7,4), prix_min_eur DECIMAL(6,3),
+                                   prix_max_eur DECIMAL(6,3), niveau_vie_median_eur DOUBLE
+                                   grain (commune_code, carburant, jour) ; jour civil de Paris, prix en vigueur à 12:00 de Paris,
+                                   jours exploitables seulement ; not_null : commune_code, carburant, jour, nb_stations
 ```
 
 Base `collecte`, ajout du 17/11 : `ref_station_commune(station_id BIGINT PRIMARY KEY, com_arm_code TEXT, fichier_date DATE NOT NULL, charge_ts TIMESTAMPTZ NOT NULL DEFAULT now())`.
@@ -474,15 +522,17 @@ purge_journal.jsonl         une ligne JSON par lot confirmé : lot, confirme, co
 make up                                  docker compose up -d --build (RECRÉE : premier démarrage ou changement de configuration, après pg_dump)
 make pause                               docker compose stop (jamais avant la fin de séance)
 make reprise                             up -d --no-recreate, unpause si besoin, 5 runs, comptes, 5 passages, autres piles, mémoire et PIDS, verdict
-make test                                tests du conteneur (458), base de métadonnées sqlite dédiée
+make test                                tests du conteneur (462 le 24/11), base de métadonnées sqlite dédiée
 make test-bootstrap                      tests du bootstrap Databricks sur l'hôte, dans .venv (73)
-make test-tout                           conteneur, hôte et garde dbt (535 le 17/11) : critère vert
-make test-dbt-garde                      garde des schémas dbt (4), .venv-dbt, dbt parse sans connexion ni .env
+make test-tout                           conteneur, hôte et garde dbt (540 le 24/11) : critère vert
+make test-dbt-garde                      garde des schémas dbt (5), .venv-dbt, dbt parse sans connexion ni .env
 make dbt ARGS="debug"                    dbt dans .venv-dbt (inclut .env pour cette cible, DBT_PROFILES_DIR et DBT_PROJECT_DIR sur dbt/)
 make dbt ARGS="deps"                     installe dbt_utils 1.4.1 dans dbt/dbt_packages
 make dbt ARGS="source freshness"         freshness de prix_flux, station_etat_flux, ref_station_commune (lecture seule)
 make dbt ARGS="build --select staging"   ÉCRIT les 7 vues de staging puis teste (87 : PASS 86, WARN 1, le 17/11)
 make dbt ARGS="build --select +dim_commune +int_stations__commune"   ÉCRIT staging Insee, dim_commune, int_stations__commune (92 : PASS 91, WARN 1)
+make dbt ARGS="build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour"   ÉCRIT les tables liées au flux, après chaque chargement du bronze, hors 12:15 jusqu'à la fin de chargement_bronze (24/11 : parents PASS 45, mart PASS 16)
+make dbt ARGS="test --select fct_prix,test_type:unit"   unit tests seuls, aucune table écrite (6 ; 7 pour mart_prix_commune_jour)
 make charger-station-commune             télécharge le quotidien, GX, remplace ref_station_commune dans Postgres (9 952 le 17/11)
 make charger-referentiels-bronze ARGS="--table toutes"   5 référentiels vers carburant_bronze (conteneur jetable), entre :02 et :08 ; --table T pour une seule
 make dbt ARGS="ls --resource-type model --output json --output-keys unique_id schema access group"   schémas avant un run
@@ -533,6 +583,15 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur (par 
 - J6 (17/11) : mutant G2 survivant (test qui n'attendait qu'un `ValueError` quelconque, il exige maintenant le message) ; `_rescued_data` inattendue après `read_files` (gardée et testée) ; ébauche TDD refusée par dbt tant qu'elle ne cite pas tous les `ref` donnés aux unit tests ; heures d'un rapport en heure locale (`date` sans `-u`), puis heures du matin converties à tort (voir `learnings.md`).
 
 ## 7. Points ouverts
+
+- J9 : refus de l'entrepôt du 24/11 (`BAD_REQUEST: Cannot create the resource`, mesuré de 07:53:22 à 07:55:04, OK vers 09:18 selon les sondes de l'utilisateur) : cause inconnue.
+- J9 : dbt non orchestré : après chaque chargement, les tables de `carburant_gold` sont en retard sur le bronze et un enfant reconstruit seul casse son `relationships` (station 62112001, entrée le 24/11). Candidat de J10.
+- J9 : bornes de prix relatives au carburant reportées : 157 lignes hors [80 %, 130 %] de la médiane de leur carburant, dont 98 en E85 (M2b).
+- J9 : GPLc : 10,8 % des prix en vigueur hors rupture ont plus de 90 jours et sont exclus du mart (M7b, 21/11) ; une partie est sans doute stable et non morte.
+- J9 : 367 lignes du mart sans niveau de vie ; 194 versions de `fct_prix` sans commune.
+- J9 : proxy des passages : un passage sans aucun changement de prix n'apparaît pas dans `fct_prix` (`passage_flux` n'est pas au bronze).
+- J9 : sous MM1 (midi en UTC), les 6 autres unit tests du mart rougissent aussi (témoins de passage autour de 11:00 UTC) : couplage documenté ; MM1b (`+01:00`) isole la règle du fuseau.
+- J9 : le jour même n'est jamais exploitable (bronze arrêté vers 09:45 par le chargement de 12:20) ; la veille le devient après le chargement.
 
 - J8 : format de `debut` : si la source corrige son étiquette `+00:00`, la conversion depuis l'heure de Paris décalera tout d'une ou deux heures en silence ; le test `rupture_debut_ts <= premiere_observation_ts` ne voit que le cas inverse.
 - J8 : `to_timestamp` en échec bruyant (mode ANSI du serverless) : une valeur de `debut` illisible fait échouer toute la vue du staging (voulu, documenté).
