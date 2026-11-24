@@ -17,9 +17,12 @@ clean-targets:
   - "dbt_packages"
 
 # Millésimes des référentiels lus en staging (COG 2026, Filosofi 2023).
+# Bornes de prix plausibles en euros par litre, incluses (test prix_eur_litre_plausible du staging).
 vars:
   cog_millesime: 2026
   filosofi_millesime: 2023
+  prix_plausible_min: 0.5
+  prix_plausible_max: 3.5
 
 flags:
   send_anonymous_usage_stats: false

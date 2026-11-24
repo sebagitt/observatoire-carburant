@@ -38,8 +38,8 @@ models:
           - dbt_utils.accepted_range:
               name: prix_eur_litre_plausible
               arguments:
-                min_value: 0.5
-                max_value: 3.5
+                min_value: "{{ var('prix_plausible_min') }}"
+                max_value: "{{ var('prix_plausible_max') }}"
               config:
                 severity: warn
       - name: collecte_ts
