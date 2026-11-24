@@ -287,6 +287,69 @@ models:
                 to: ref('dim_commune')
                 field: commune_code
 
+  - name: mart_prix_commune_jour
+    description: >
+      Une ligne par (commune, carburant, jour) : prix en vigueur à 12:00 de Paris, par station, agrégés par commune.
+      Jours exploitables seulement (passages encadrant midi à au plus ecart_midi_max_minutes) ; prix plausibles,
+      en vigueur depuis au plus prix_age_max_jours, hors rupture en cours à midi, stations rattachées à une commune.
+    config:
+      access: public
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [commune_code, carburant, jour]
+      - dbt_utils.expression_is_true:
+          name: mart_prix_nb_stations_positif
+          arguments:
+            expression: "nb_stations >= 1"
+      - dbt_utils.expression_is_true:
+          name: mart_prix_min_median_max_ordonnes
+          arguments:
+            expression: "prix_min_eur <= prix_median_eur and prix_median_eur <= prix_max_eur"
+    columns:
+      - name: commune_code
+        data_type: string
+        constraints:
+          - type: not_null
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_commune')
+                field: commune_code
+      - name: carburant
+        data_type: string
+        constraints:
+          - type: not_null
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [gazole, e10, sp98, e85, sp95, gplc]
+      - name: jour
+        data_type: date
+        constraints:
+          - type: not_null
+        description: Jour civil de Paris.
+        data_tests: [not_null]
+      - name: nb_stations
+        data_type: bigint
+        constraints:
+          - type: not_null
+        description: Stations dont le prix entre dans l'agrégat ce jour-là.
+      - name: prix_median_eur
+        data_type: decimal(7,4)
+        description: Médiane exacte (percentile) des prix en vigueur à midi de Paris.
+      - name: prix_min_eur
+        data_type: decimal(6,3)
+      - name: prix_max_eur
+        data_type: decimal(6,3)
+      - name: niveau_vie_median_eur
+        data_type: double
+        description: Repris de dim_commune pour le croisement ; NULL si masqué ou sans ligne Filosofi.
+
 unit_tests:
   - name: test_dim_commune_parent_arm_et_com
     description: un ARM reçoit son code parent (comparent), un COM se reçoit lui-même.
@@ -641,3 +704,158 @@ unit_tests:
     expect:
       rows:
         - {prix_version_id: e1, commune_code: null}
+
+  - name: mart_prix_midi_de_paris
+    description: un prix changé à 11:00 de Paris compte ce jour-là, un prix changé à 13:00 ne compte pas. La station 900 sans commune sert de témoin de passage.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 1, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: "2026-11-17 10:00:00", premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 1, carburant: gazole, prix_eur_litre: 1.950, valide_depuis_ts: "2026-11-17 10:00:00", valide_jusqu_ts: "2026-11-17 12:00:00", premiere_observation_ts: "2026-11-17 10:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 1, carburant: gazole, prix_eur_litre: 2.000, valide_depuis_ts: "2026-11-17 12:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 12:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-17 10:45:00", valide_jusqu_ts: "2026-11-17 11:05:00", premiere_observation_ts: "2026-11-17 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-17 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-17", nb_stations: 1, prix_median_eur: 1.9500}
+
+  - name: mart_prix_changement_heure
+    description: midi de Paris vaut 10:00 UTC le 24/10/2026 et 11:00 UTC le 25/10/2026 ; passages témoins autour de 10:00, 11:00 et 12:00 UTC pour que seule la valeur du prix départage.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 2, carburant: gazole, prix_eur_litre: 1.800, valide_depuis_ts: "2026-10-20 08:00:00", valide_jusqu_ts: "2026-10-24 10:30:00", premiere_observation_ts: "2026-10-20 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 2, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-10-24 10:30:00", valide_jusqu_ts: "2026-10-25 10:30:00", premiere_observation_ts: "2026-10-24 10:35:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 2, carburant: gazole, prix_eur_litre: 2.000, valide_depuis_ts: "2026-10-25 10:30:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-10-25 10:35:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-10-24 09:45:00", valide_jusqu_ts: "2026-10-24 10:05:00", premiere_observation_ts: "2026-10-24 09:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.901, valide_depuis_ts: "2026-10-24 10:05:00", valide_jusqu_ts: "2026-10-24 10:45:00", premiere_observation_ts: "2026-10-24 10:10:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.902, valide_depuis_ts: "2026-10-24 10:45:00", valide_jusqu_ts: "2026-10-24 11:05:00", premiere_observation_ts: "2026-10-24 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.903, valide_depuis_ts: "2026-10-24 11:05:00", valide_jusqu_ts: "2026-10-24 11:45:00", premiere_observation_ts: "2026-10-24 11:10:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.904, valide_depuis_ts: "2026-10-24 11:45:00", valide_jusqu_ts: "2026-10-24 12:05:00", premiere_observation_ts: "2026-10-24 11:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.905, valide_depuis_ts: "2026-10-24 12:05:00", valide_jusqu_ts: "2026-10-25 09:45:00", premiere_observation_ts: "2026-10-24 12:10:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.906, valide_depuis_ts: "2026-10-25 09:45:00", valide_jusqu_ts: "2026-10-25 10:05:00", premiere_observation_ts: "2026-10-25 09:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.907, valide_depuis_ts: "2026-10-25 10:05:00", valide_jusqu_ts: "2026-10-25 10:45:00", premiere_observation_ts: "2026-10-25 10:10:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.908, valide_depuis_ts: "2026-10-25 10:45:00", valide_jusqu_ts: "2026-10-25 11:05:00", premiere_observation_ts: "2026-10-25 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.909, valide_depuis_ts: "2026-10-25 11:05:00", valide_jusqu_ts: "2026-10-25 11:45:00", premiere_observation_ts: "2026-10-25 11:10:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-10-25 11:45:00", valide_jusqu_ts: "2026-10-25 12:05:00", premiere_observation_ts: "2026-10-25 11:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.911, valide_depuis_ts: "2026-10-25 12:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-10-25 12:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-10-24", nb_stations: 1, prix_median_eur: 1.8000}
+        - {commune_code: "44109", carburant: gazole, jour: "2026-10-25", nb_stations: 1, prix_median_eur: 2.0000}
+
+  - name: mart_prix_jour_non_exploitable
+    description: le 18/11, 60 minutes sans passage autour de midi, pas de ligne ; le 19/11, 20 minutes, une ligne.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 3, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-01 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-01 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-18 10:25:00", valide_jusqu_ts: "2026-11-18 11:25:00", premiere_observation_ts: "2026-11-18 10:30:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-18 11:25:00", valide_jusqu_ts: "2026-11-19 10:45:00", premiere_observation_ts: "2026-11-18 11:30:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.920, valide_depuis_ts: "2026-11-19 10:45:00", valide_jusqu_ts: "2026-11-19 11:05:00", premiere_observation_ts: "2026-11-19 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.930, valide_depuis_ts: "2026-11-19 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-19 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-19", nb_stations: 1, prix_median_eur: 1.9000}
+
+  - name: mart_prix_non_plausible_exclu
+    description: un prix non plausible n'entre pas dans l'agrégat.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 4, carburant: gazole, prix_eur_litre: 9.990, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: false}
+          - {station_id: 5, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-17 10:45:00", valide_jusqu_ts: "2026-11-17 11:05:00", premiere_observation_ts: "2026-11-17 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-17 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-17", nb_stations: 1, prix_median_eur: 1.9000}
+
+  - name: mart_prix_trop_ancien_exclu
+    description: un prix en vigueur depuis plus de 90 jours (108 jours ici) est exclu.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 6, carburant: gazole, prix_eur_litre: 1.700, valide_depuis_ts: "2026-08-01 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-08-01 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 7, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-17 10:45:00", valide_jusqu_ts: "2026-11-17 11:05:00", premiere_observation_ts: "2026-11-17 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-17 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-17", nb_stations: 1, prix_median_eur: 1.9000}
+
+  - name: mart_prix_mediane_nombre_pair
+    description: deux stations à 1,800 et 1,900 donnent une médiane de 1,8500.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 8, carburant: gazole, prix_eur_litre: 1.800, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 9, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-17 10:45:00", valide_jusqu_ts: "2026-11-17 11:05:00", premiere_observation_ts: "2026-11-17 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-17 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 999, carburant: gplc, rupture_debut_ts: "2026-01-01 00:00:00", fin_observee_ts: null}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-17", nb_stations: 2, prix_median_eur: 1.8500, prix_min_eur: 1.800, prix_max_eur: 1.900}
+
+  - name: mart_prix_rupture_exclue
+    description: une pompe en rupture à midi est exclue ; une rupture close avant midi n'exclut rien.
+    model: mart_prix_commune_jour
+    given:
+      - input: ref('fct_prix')
+        rows:
+          - {station_id: 10, carburant: gazole, prix_eur_litre: 1.800, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 11, carburant: gazole, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-10 08:00:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-10 08:15:00", commune_code: "44109", est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.900, valide_depuis_ts: "2026-11-17 10:45:00", valide_jusqu_ts: "2026-11-17 11:05:00", premiere_observation_ts: "2026-11-17 10:50:00", commune_code: null, est_plausible: true}
+          - {station_id: 900, carburant: e10, prix_eur_litre: 1.910, valide_depuis_ts: "2026-11-17 11:05:00", valide_jusqu_ts: null, premiere_observation_ts: "2026-11-17 11:10:00", commune_code: null, est_plausible: true}
+      - input: ref('fct_ruptures')
+        rows:
+          - {station_id: 10, carburant: gazole, rupture_debut_ts: "2026-11-17 08:00:00", fin_observee_ts: null}
+          - {station_id: 11, carburant: gazole, rupture_debut_ts: "2026-11-12 08:00:00", fin_observee_ts: "2026-11-15 08:00:00"}
+      - input: ref('dim_commune')
+        rows:
+          - {commune_code: "44109", niveau_vie_median_eur: 22000}
+    expect:
+      rows:
+        - {commune_code: "44109", carburant: gazole, jour: "2026-11-17", nb_stations: 1, prix_median_eur: 1.9000}
