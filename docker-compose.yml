@@ -38,6 +38,7 @@ services:
       - ./quality:/opt/airflow/project/quality
       - ./data/lots:/opt/airflow/data/lots
       - ./data/referentiels:/opt/airflow/data/referentiels
+      - ./dbt:/opt/airflow/dbt:ro
     ports:
       - "127.0.0.1:8081:8080"  # interface accessible depuis cette machine seulement
     command: standalone
