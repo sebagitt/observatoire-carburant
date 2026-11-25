@@ -6,7 +6,8 @@ environnement_dbt : copie de l'environnement reçu (DATABRICKS_* gardées, dbt l
   target et logs sous /tmp, jamais dans le projet monté en lecture seule.
 masquer : remplace par *** les valeurs non vides de l'hôte (avec et sans https://), du jeton et de l'entrepôt.
 lancer_dbt : exécute la commande sans shell, passe chaque ligne de sortie par masquer ; ErreurDbt si le code est non nul,
-  avec le seul code dans le message (aucune ligne de sortie).
+  avec le seul code dans le message (aucune ligne de sortie). Délai DELAI_DBT_S (25 min, sous l'execution_timeout de
+  30 min du DAG) : au-delà, ErreurDbt avec le seul délai dans le message ; la sortie partielle n'est ni affichée ni gardée.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ SELECTION_CHAINE = ("dim_station", "fct_ruptures", "fct_prix", "mart_prix_commun
 DBT_EXE = "/opt/dbt-venv/bin/dbt"
 PROJET_DBT = "/opt/airflow/dbt"
 RACINE_TMP = "/tmp/dbt"
+DELAI_DBT_S = 25 * 60
 NOMS_SECRETS = ("DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_WAREHOUSE_ID")
 
 
@@ -51,8 +53,11 @@ def masquer(ligne, base) -> str:
     return ligne
 
 
-def lancer_dbt(commande, env, executer=subprocess.run, sortie=print) -> None:
-    resultat = executer(commande, env=env, capture_output=True, text=True, check=False)
+def lancer_dbt(commande, env, executer=subprocess.run, sortie=print, delai_s=DELAI_DBT_S) -> None:
+    try:
+        resultat = executer(commande, env=env, capture_output=True, text=True, check=False, timeout=delai_s)
+    except subprocess.TimeoutExpired:
+        raise ErreurDbt(f"dbt dépassé ({delai_s} s)") from None
     for flux in (resultat.stdout, resultat.stderr):
         for ligne in (flux or "").splitlines():
             sortie(masquer(ligne, env))

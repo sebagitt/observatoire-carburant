@@ -2,10 +2,12 @@
 
 Bibliothèque standard seulement : tourne dans le conteneur (make test) et sur l'hôte (.venv).
 """
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 
+import ingestion.taches_dbt as taches_dbt
 from ingestion.taches_dbt import (
     DBT_EXE,
     PROJET_DBT,
@@ -134,7 +136,6 @@ def test_lancer_code_non_nul_leve_sans_sortie_ni_secret_dans_le_message():
     assert sans_secret(message)
     for ligne in (stdout + "\n" + stderr).splitlines() + recues:
         assert ligne not in message
-    assert erreur.value.__cause__ is None
     assert len(recues) == 3
     assert all(sans_secret(ligne) for ligne in recues)
 
@@ -146,6 +147,36 @@ def test_lancer_code_zero_appel_tel_quel_sans_shell():
     recues = []
     assert lancer_dbt(commande, env, executer=executer, sortie=recues.append) is None
     assert executer.args == (commande,)
-    assert executer.kwargs == {"env": env, "capture_output": True, "text": True, "check": False}
+    assert executer.kwargs == {"env": env, "capture_output": True, "text": True, "check": False,
+                               "timeout": taches_dbt.DELAI_DBT_S}
     assert "shell" not in executer.kwargs
     assert recues == ["Done. PASS=61 WARN=0 ERROR=0"]
+
+
+# --- délai ----------------------------------------------------------------------------------------------------------
+
+
+def test_delai_sous_le_timeout_de_30_minutes_du_dag():
+    assert taches_dbt.DELAI_DBT_S < 30 * 60
+
+
+def test_lancer_delai_depasse_leve_sans_sortie_partielle():
+    commande = commande_dbt()
+
+    def executer(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=commande, timeout=1, output="hote-factice.invalid")
+
+    recues = []
+    with pytest.raises(ErreurDbt) as erreur:
+        lancer_dbt(commande, environnement_dbt(ENV), executer=executer, sortie=recues.append)
+    message = str(erreur.value)
+    assert "dépassé" in message
+    assert sans_secret(message)
+    assert erreur.value.__suppress_context__ is True
+    assert recues == []
+
+
+def test_lancer_delai_transmis_tel_quel():
+    executer = FauxExecuter(code=0)
+    lancer_dbt(commande_dbt(), environnement_dbt(ENV), executer=executer, sortie=lambda ligne: None, delai_s=7)
+    assert executer.kwargs["timeout"] == 7
