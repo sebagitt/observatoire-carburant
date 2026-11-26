@@ -12,8 +12,9 @@ from datetime import timedelta
 import pendulum
 
 try:  # Airflow 3
-    from airflow.sdk import dag, task
+    from airflow.sdk import Asset, dag, task
 except ImportError:  # Airflow 2
+    from airflow.datasets import Dataset as Asset
     from airflow.decorators import dag, task
 from airflow.exceptions import AirflowFailException
 
@@ -41,7 +42,7 @@ def chargement_bronze():
 
         tache_charger(sortie=LOG.info)
 
-    @task
+    @task(outlets=[Asset("carburant_bronze")])
     def controler() -> None:
         from ingestion.taches_bronze import DoublonsBronze, tache_controler
 
