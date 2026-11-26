@@ -47,3 +47,4 @@ Oublier : sorties de logs longues, essais abandonnés.
 - Un test vert ne prouve pas qu'il protège une règle : mutation d'une ligne dans une copie hors dépôt, le test doit passer du vert au rouge.
 - Accord groupé : si l'attendu recalculé diffère du chiffre donné dans le message, arrêt et question avant toute action irréversible (push, suppression, écriture en base), même si le recalcul paraît juste.
 - HANDOFF écrit avant le push : la ligne d'état du dépôt dit "push prévu juste après ce commit, à vérifier par git ls-remote à la reprise", jamais un état de push supposé.
+- Fin de session : si la conversation du chat ou de CC devient longue (beaucoup de tokens, nombreux allers-retours, rapports collés), prévoir un changement de session : bloc de reprise autosuffisant pour le chat et pour CC, fichiers à transmettre, état réel (commit, ls-remote, conteneurs, mémoire) et prochaine étape.
