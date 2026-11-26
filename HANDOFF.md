@@ -1,7 +1,43 @@
-# HANDOFF : séance du 2026-11-25, J10 en cours (taches_dbt en TDD, image avec venv dbt construite, conteneur non recréé)
-## 0. Mise à jour du 2026-11-25, J10 en cours (à lire en premier)
+# HANDOFF : séance du 2026-11-26, J10 clos (transformation_dbt déclenché par le bronze, airflow recréé sur l'image avec dbt)
+## 0. Mise à jour du 2026-11-26, J10 clos (à lire en premier)
 
-Spécification : `docs/journal/J10_spec.md` (section 9b). Debrief : `docs/journal/J10.md`. Toutes les heures de ce fichier sont en UTC.
+Spécification : `docs/journal/J10_spec.md` (section 9b). Debrief : `docs/journal/J10.md` (section 1b). Toutes les heures de ce fichier sont en UTC.
+
+J10 est clos : `transformation_dbt` reconstruit la chaîne gold après chaque chargement du bronze, sans geste manuel. Prochaine séance : J11 (section 1).
+
+### Reprise du 26/11
+- 09:22 : `make reprise` OK ; identifiants égaux à la section 2 ; `origin/main` à `4da2b75` (`git ls-remote`) ; mémoire 2,255 Gio. Conteneurs redémarrés à 07:24 après le `make pause` du 25/11 (StartedAt ; l'identifiant ne change pas sur stop puis start).
+
+### Sauvegardes avant recréation
+- `pg_dump -Fc` dans `data/backups/` : `collecte_20261126T100628Z.dump` (13 485 288 octets, SHA-256 `b69e0886...95604354`) et `airflow_20261126T100628Z.dump` (247 173 octets, `b814b1b7...35c72f8c`) ; empreintes égales dans le conteneur et sur l'hôte ; `pg_restore --list` code 0 (9 et 45 lignes TABLE DATA).
+
+### DAG et test (commit `6833dc5`)
+- `airflow/dags/transformation_dbt.py` : `schedule=[Asset("carburant_bronze")]`, `catchup=False`, `max_active_runs=1`, créé en pause, une tâche `construire` (`retries=1`, `retry_delay` 10 min, `execution_timeout` 30 min) qui appelle `lancer_dbt(commande_dbt(), environnement_dbt(os.environ))`. `controler` de `chargement_bronze` porte `outlets=[Asset("carburant_bronze")]`.
+- `ingestion/tests/test_structure_dags.py` (7 tests, dossier lu dans `DOSSIER_DAGS`) : rouge observé avant le DAG ; mutation `outlets` retiré dans une copie hors dépôt : seul `test_controler_emet_l_asset_bronze` rouge, empreinte de `airflow/dags` identique.
+- Commit `613dd45` : règle « Fin de session » dans `CLAUDE.md`.
+
+### Recréation d'airflow (11:01)
+- `stop airflow`, port 8081 libre au premier essai, `up -d --no-deps airflow` sans `--build`. Avant : `f12be32bd7bc...` sur `sha256:3e865283...` ; après : `4f3988e13a11...` sur `sha256:5875415f...` ; postgres inchangé. dbt 1.12.6 et databricks 1.13.0 ; `/opt/airflow/dbt` en `ro` (`/proc/mounts`) ; aucune erreur d'import ; `unpause` de `transformation_dbt` à 11:02.
+
+### Chaîne réelle de 12:20
+- `chargement_bronze` de 12:20:00 à 12:21:29 (`controler` fini à 12:21:28) ; run `transformation_dbt` créé par l'Asset à 12:21:28, tâche de 12:21:29 à 12:23:09, première tentative, `PASS=61 WARN=0 ERROR=0`, aucune ligne d'hôte dans le log.
+- Bronze relu : `prix_flux` 322 600, `station_etat_flux` 36 948 (égaux aux attendus recalculés avant 12:20), doublons 0, max `collecte_ts` 2026-11-26 09:45:01, curseurs au 2026-11-26 10:00.
+- 11 comptes relus égaux aux attendus recalculés : `dim_station` 11 521 lignes et 9 857 stations ; `fct_ruptures` 41 735 événements et 8 944 stations ; `fct_prix` 322 600 lignes, 34 435 courantes, 9 743 stations, 0 non plausible ; `mart_prix_commune_jour` 13 jours, 266 915 lignes, 414 458 prix de station. Sans attendu : 22 065 ruptures en cours, 226 versions sans commune, 5 554 communes, 437 lignes sans niveau de vie.
+- Mémoire d'airflow : maximum relevé 2,603 Gio pendant le build (relevés à partir de 12:22:00).
+
+### Écarts du jour (détail dans `learnings.md`)
+- 6 rouges attendus, observés 1 failed et 5 errors (fixture en `KeyError`) : arrêt, équivalence acceptée sur décision.
+- 486 verts annoncés, 485 obtenus (le test d'import était déjà vert dans le run rouge) : attendu recalculé avant le lancement.
+- `Get-Date -AsUTC` absent de Windows PowerShell 5.1 : heures par `date -u`.
+
+### Tests et commits
+- `make test-tout` : 485 + 73 + 5 = **563** (12:56:22, code retour 0).
+- Commits du 26/11 : `6833dc5`, `613dd45`, plus le commit de ce HANDOFF.
+- État du dépôt : `origin/main` à `4da2b75` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
+
+## 0a. Archive du 2026-11-25, J10 en cours
+
+Archive : le bloc 0 fait foi. Spécification : `docs/journal/J10_spec.md` (section 9b). Debrief : `docs/journal/J10.md`. Toutes les heures de ce fichier sont en UTC.
 
 ### Reprise du 25/11
 - 10:08 : identifiants des conteneurs égaux à la section 2 ; `HEAD` et `origin/main` égaux à `409ca63` (`git ls-remote`) ; mémoire d'airflow 2,374 Gio. Pas d'arrêt depuis le 24/11, donc aucun rejeu de `chargement_bronze` le matin.
@@ -31,7 +67,7 @@ Spécification : `docs/journal/J10_spec.md` (section 9b). Debrief : `docs/journa
 - Commits du 25/11 : `0660258`, `2d3d12c`, `09635ed`, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `409ca63` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0a. Archive du 2026-11-24, J9
+## 0b. Archive du 2026-11-24, J9
 
 Spécification : `docs/journal/J9_spec.md` (révisée le 24/11, section 9b : décisions après le STOP 0 ; version du 23/11 dans `J9_spec_v1_20261123.md`). Debrief : `docs/journal/J9.md`. Mesures : `docs/journal/J9_stop0/`. Guide : `docs/journal/guides/J9_guide.md`. Toutes les heures de ce fichier sont en UTC.
 
@@ -71,7 +107,7 @@ Spécification : `docs/journal/J10_spec.md` (section 9b). Mesures : `docs/journa
 - Ordre de déploiement : `airflow/dags/` est monté en direct ; DAG `transformation_dbt` et `outlets` de `chargement_bronze` écrits seulement avec le Dockerfile et le compose, dans la séance de la recréation, avant 12:20.
 - État du dépôt : `origin/main` à `d6709ff` ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0b. Archive du 2026-11-23, J8
+## 0c. Archive du 2026-11-23, J8
 
 Archive : le bloc 0 fait foi. Spécifications : `docs/journal/J7_spec.md` (section 12b : D, E, C) et `docs/journal/J8_spec.md` (section 9b). Debrief : `docs/journal/J8.md`. Mesures du STOP 0 de J8 : `docs/journal/J8_stop0/`. Guide : `docs/journal/guides/J8_guide.md`. Toutes les heures de ce fichier sont en UTC.
 
@@ -97,11 +133,11 @@ J7 et J8 sont clos.
 - Commits du 23/11 : `29adcfd`, `1aef54c`, `0e84217`, `cd6933d`, `f0df100`, `38a7dd8`, `8d86f3f`, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `6abe30b` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0c. Archive du 2026-11-19, J7 partiel
+## 0d. Archive du 2026-11-19, J7 partiel
 
 Spécification : `docs/journal/J7_spec.md` (D3b et méthode de mutation tranchées en section 8). Debrief : `docs/journal/J7.md`. Mesures du STOP 0 : `docs/journal/J7_stop0/`. Toutes les heures de ce fichier sont en UTC.
 
-### Prochaine séance (faite le 23/11, voir bloc 0b), dans l'ordre
+### Prochaine séance (faite le 23/11, voir bloc 0c), dans l'ordre
 1. Correction de l'`error_code` dans `assurer_entrepot` (`ingestion/adaptateurs_databricks.py`) : garder le type de l'exception et son `error_code` dans `ErreurBootstrap`, jamais le message ; TDD ; écriture dans `ingestion/` en fenêtre :01 à :14, hors run en cours.
 2. Section C de `docs/journal/J7_spec.md` : `dim_station` (attendu de lignes recalculé par M4 juste avant le build ; 11 479 au 19/11 16:06).
 
@@ -135,11 +171,11 @@ Spécification : `docs/journal/J7_spec.md` (D3b et méthode de mutation tranché
 - Commits du 19/11 : `1cb0bb8` test(dbt) retrait de l'entrée unit_test de la garde, `aba7a07` test(dbt) filet de taux de non-NULL, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `c2c2b8e` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0d. Archive du 2026-11-17, J6
+## 0e. Archive du 2026-11-17, J6
 
 Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés). Debrief : `docs/journal/J6.md`. Mesures du STOP 0 : `docs/journal/J6_stop0/`. Toutes les heures de ce fichier sont en UTC.
 
-### Reprise du jeudi 19/11 : faite, voir bloc 0c
+### Reprise du jeudi 19/11 : faite, voir bloc 0d
 
 ### Référentiels au bronze
 - Rattachement station commune : `com_arm_code` du flux quotidien (option D, décision du 17/11). `make charger-station-commune` (10:02 UTC) : fichier de 6 492 958 octets, `fichier_date` 2026-11-16, table Postgres `ref_station_commune` à 9 952 lignes dont 9 941 avec code, validée par GX (minimum 9 500, format du code, station unique) et remplacée en une transaction.
@@ -157,7 +193,7 @@ Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés
 - Build `+dim_commune +int_stations__commune` (13:35:42 à 13:37:20 UTC) : PASS 91, WARN 1, ERROR 0. Le warn : `not_null_stg_carburants__station_etats_code_departement`, 31 lignes pour 4 stations (24 lignes au J5).
 - Garde des schémas : 4 tests ; nouveau test par dossier (`marts/` dans `carburant_gold`, `intermediate/` dans `carburant_silver`), sondes sans config sous `marts/` et `intermediate/`.
 - Mutations (copies hors dépôt, restauration prouvée par empreinte) : filtre de millésime, MT, MP, MD, MC, MG tuées ; **MI** (`and direct.commune_code is null` retiré) survit : mutant équivalent (le `coalesce` préfère déjà le COM, aucun code à plusieurs lignes COMD ou COMA dans le COG 2026), code inchangé (décision du 17/11).
-- **Le connecteur SQL de dbt démarre l'entrepôt de lui-même** : `STOPPED` à 08:06:57 UTC, `RUNNING` à 08:07:45 après `dbt source freshness` (une seule observation). Contraire à `execute_statement` du 13/11, refusé sur un entrepôt arrêté (bloc 0g).
+- **Le connecteur SQL de dbt démarre l'entrepôt de lui-même** : `STOPPED` à 08:06:57 UTC, `RUNNING` à 08:07:45 après `dbt source freshness` (une seule observation). Contraire à `execute_statement` du 13/11, refusé sur un entrepôt arrêté (bloc 0h).
 
 ### Heures des rapports
 - Les heures du matin du 17/11 étaient déjà en UTC (preuves : freshness `2026-11-17T08:07:34+00:00` ; Parquet `ref_cog_region__20261117T100326Z` écrit entre 10:03:16 et 10:03:41). Seul le premier rapport de l'après-midi était en heure locale (13:25 à 13:28 au lieu de 12:25 à 12:28 UTC) ; la correction qui avait converti 10:47 en 09:47 était fausse. Voir `learnings.md`.
@@ -167,7 +203,7 @@ Spécification : `docs/journal/J6_spec.md` (section 12 : écarts 5 à 9 validés
 - Commits du 17/11 : `77b7009` docs (règles d'accord groupé), `6f4cdb9` feat(ingestion) rattachement station commune, `472fe45` feat(ingestion) référentiels vers le bronze, `28dec48` build cibles make, `11df76a` feat(dbt) sources et staging Insee, `8518325` feat(dbt) staging du rattachement, `03e5825` feat(dbt) dim_commune, `0739187` feat(dbt) rattachement des stations, `a65211e` test(dbt) garde intermediate et marts, `65cdc14` docs(fiches) flux quotidien et com_arm_code, plus le commit de ce HANDOFF.
 - État du dépôt : `origin/main` à `2f3f4da` au début de la séance ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
 
-## 0e. Archive du 2026-11-16, ancien J5 dbt
+## 0f. Archive du 2026-11-16, ancien J5 dbt
 Archive : le bloc 0 fait foi. Correction du 17/11 : les commits listés ci-dessous comme « non poussés à l'écriture » ont été poussés ensuite, `origin/main` à `2f3f4da` (`git ls-remote` du 17/11 à la reprise).
 
 Spécification : `docs/journal/J5_spec_dbt.md` (section 9 : écarts validés au STOP D). Debrief : `docs/journal/J5_dbt.md`.
@@ -195,13 +231,13 @@ Spécification : `docs/journal/J5_spec_dbt.md` (section 9 : écarts validés au 
 2. J6 : code commune des stations (aucun code INSEE dans le flux instantané) : jointure spatiale (lat/lon et contours), `cp` plus `ville` vers le COG (ambigu), `com_arm_code` du flux quotidien ; à trancher en J6. Référentiels COG et Filosofi.
 3. J7 : filet de taux de NULL sur les colonnes extraites du JSON (`get_json_object` renvoie NULL sans erreur sur une clé mal écrite) ; 12 colonnes de rupture typées ; snapshot `dim_station`.
 4. Garde : l'entrée `unit_test` de `TYPES_GARDES` est inerte (les unit tests sont sous `manifest["unit_tests"]`, et ne créent qu'une vue temporaire de session) : à retirer ou à documenter.
-5. Points ouverts hors J5 : voir le bloc 0e.
+5. Points ouverts hors J5 : voir le bloc 0f.
 
 ### Tests et commits
 - `make test-tout` (15:35 UTC, code retour 0) : conteneur 400, hôte 73, garde dbt 3, soit **476** passés.
 - `origin/main` à `9febba3` (`git ls-remote`, 15:36 UTC). Commits locaux de la séance, non poussés à l'écriture : `6e87cee`, `abf7ce1`, `50a3729`, `545618a`, `3763a66`, `465a9e1`, `2089c2d`, plus le commit de ce HANDOFF.
 
-## 0f. Archive du 2026-11-16, fin du 3e jour de J5
+## 0g. Archive du 2026-11-16, fin du 3e jour de J5
 Archive : le bloc 0 fait foi.
 
 ### Reprise de session (dans cet ordre)
@@ -249,11 +285,11 @@ Archive : le bloc 0 fait foi.
 - `make test-tout` (13:31 UTC, code retour 0) : conteneur 400 passés, hôte 73 passés.
 - `origin/main` à `b4f1a1a` à l'écriture (13:31 UTC) ; ces commits et celui du HANDOFF ont été poussés ensuite : `origin/main` à `9febba3` (`git ls-remote` du 16/11 à 13:57 UTC, aucun commit en avance).
 
-## 0g. Archive du 2026-11-13, fin du 2e jour de J5
+## 0h. Archive du 2026-11-13, fin du 2e jour de J5
 Archive : lignes périmées (curseurs, totaux, à faire) ; le bloc 0 fait foi.
 
 ### Reprise de session (dans cet ordre)
-1. `make reprise`, puis comparer les identifiants des conteneurs avec ceux de la section 2 (airflow `6bc98c61...`, postgres `9b3b0a0f...`). Après un arrêt, un rattrapage est attendu ; si `charger` échoue avec le garde-fou des 30 %, voir l'incident du 12/11 dans le bloc 0e.
+1. `make reprise`, puis comparer les identifiants des conteneurs avec ceux de la section 2 (airflow `6bc98c61...`, postgres `9b3b0a0f...`). Après un arrêt, un rattrapage est attendu ; si `charger` échoue avec le garde-fou des 30 %, voir l'incident du 12/11 dans le bloc 0f.
 2. `git status -sb` et `git log origin/main..HEAD --oneline` : relever l'état réel avant toute consigne qui cite des étapes déjà faites.
 3. Reprendre le rattrapage de `station_etat_flux` (ci-dessous), puis les petits changements de `charger_bronze`, puis le DAG.
 4. Ne jamais lire `.env`, ne jamais afficher `DATABRICKS_*`.
@@ -306,17 +342,14 @@ Archive : lignes périmées (curseurs, totaux, à faire) ; le bloc 0 fait foi.
 
 ## 1. Prochaine séance et reprises sans séance
 
-### Prochaine séance (J10, déploiement)
-1. Contrôles de reprise (points 1 à 4 ci-dessous) et `git ls-remote origin refs/heads/main` ; identifiants égaux à la section 2.
-2. Avant 11:30 UTC : `pg_dump` des bases `collecte` et `airflow` (`data/backups`, lisibles par `pg_restore --list`).
-3. DAG `transformation_dbt` (`schedule=[Asset("carburant_bronze")]`, `catchup=False`, `max_active_runs=1`, une tâche, `retries=1`, `retry_delay` 10 min, `execution_timeout` 30 min, appelle `ingestion.taches_dbt`) et `outlets` de `controler` dans `chargement_bronze` ; test de structure exécutable par `make test` ; mutation `outlets` retiré. Écrits en fenêtre :01 à :14, juste avant la recréation.
-4. Recréation en trois temps : `stop airflow`, port 8081 libre, `up -d --no-deps airflow` SANS `--build` (image `5875415f...` déjà construite) ; identifiants et image relus ; `dags list` ; `unpause` de `transformation_dbt` (créé en pause). Tout avant 12:00 UTC. Sinon retour arrière : DAG et `outlets` retirés, pas de recréation, build en chaîne manuel après 12:20.
-5. Observation : `chargement_bronze` de 12:20 puis `transformation_dbt` par l'Asset ; attendus recalculés juste avant ; comptes relus ; mémoire pendant le build.
+### Prochaine séance (J11)
+1. Contrôles de reprise (points 1 à 5 ci-dessous) et `git ls-remote origin refs/heads/main` ; identifiants égaux à la section 2, StartedAt relevé.
+2. J11 : STOP 0 de la partie 4a, sans Qlik (`docs/journal/J11_spec.md`). Essai de Qlik seulement le jour de la partie 4b.
 
-### Après chaque chargement du bronze (en séance, jamais en reprise sans séance)
-- `make dbt ARGS="build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour"` : parents en table et enfants ensemble (un enfant reconstruit seul casse son `relationships`, J9).
-- Attendus recalculés juste avant : `docs/journal/J7_stop0/m4.sql` (`versions_dim_services_tries`), `docs/journal/J8_stop0/attendu_fct.sql` (`evenements`), `docs/journal/J9_stop0/attendu_fct.sql`, puis `attendu_mart.sql` après le build de `fct_prix` ; relectures `docs/journal/J9_stop0/relu_*.sql`.
-- Jamais entre 12:15 et la fin du run `chargement_bronze` (vérifier par `list-runs` : aucun running).
+### Après chaque chargement du bronze
+- Build automatique : `transformation_dbt`, déclenché par l'Asset `carburant_bronze` émis par `controler`, lance `dbt build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour` (parents en table et enfants ensemble ; un enfant reconstruit seul casse son `relationships`, J9).
+- Build manuel (`make dbt ARGS="build --select dim_station fct_ruptures fct_prix mart_prix_commune_jour"`) seulement en séance, et seulement si les deux tentatives de `transformation_dbt` ont échoué ; jamais entre 12:15 et la fin du run `chargement_bronze`, ni pendant un run de `transformation_dbt` (vérifier par `list-runs` : aucun running).
+- Contrôle en séance : attendus recalculés (`docs/journal/J7_stop0/m4.sql` (`versions_dim_services_tries`), `docs/journal/J8_stop0/attendu_fct.sql` (`evenements`), `docs/journal/J9_stop0/attendu_fct.sql`, `attendu_mart.sql`) et relectures `docs/journal/J9_stop0/relu_*.sql`, par `make dbt ARGS="--quiet show --output json --limit 5 --inline ..."` (requête mise sur une ligne, sorties dans le scratchpad).
 
 ### Reprises sans séance
 
@@ -326,8 +359,9 @@ But : laisser la collecte tourner par périodes, sans aucune écriture à la mai
 1. `make reprise` ; identifiants des conteneurs égaux à la section 2 ; verdict EN ATTENTE normal au début, relancer au quart d'heure suivant.
 2. `docker compose exec -T airflow airflow dags list-runs collecte_flux` : premier run en success. S'il échoue sur `charger` (garde-fou des 30 %) : ne rien faire, noter, prochaine séance.
 3. `docker compose exec -T airflow airflow dags list-runs chargement_bronze` : le rejeu du dernier 12:20 part juste après la reprise ; noter success ou failed. Si failed : ne rien relancer.
-4. `docker stats --no-stream observatoire-carburant-airflow-1` : mémoire sous 3,5 Gio.
-5. En fin de journée : `make pause` à une minute hors :00, :15, :30, :45.
+4. `docker compose exec -T airflow airflow dags list-runs transformation_dbt` : noter success ou failed du dernier run. Si failed : ne rien relancer.
+5. `docker stats --no-stream observatoire-carburant-airflow-1` : mémoire sous 3,5 Gio.
+6. En fin de journée : `make pause` à une minute hors :00, :15, :30, :45.
 
 Règles :
 - Si possible, pile en route à 12:20 UTC (13:20 à Paris) : seconde chance pour le chargement si le rejeu échoue.
@@ -342,6 +376,8 @@ Règles :
 
 ### Jours clos
 
+J10 est clos : `ingestion/taches_dbt.py`, venv dbt dans l'image, DAG `transformation_dbt` déclenché par l'Asset `carburant_bronze`, airflow recréé le 26/11, premier build automatique PASS 61 et 11 comptes égaux aux attendus ; `make test-tout` 563.
+
 J9 est clos : bornes de prix plausibles en variables, `fct_prix` (288 988 versions), `mart_prix_commune_jour` (224 961 lignes, 11 jours), tous deux publics sous contract ; règle de build en chaîne après chaque chargement ; `make test-tout` 540.
 
 J8 est clos : 12 colonnes de rupture typées (heure de Paris convertie), `int_ruptures__observations`, `fct_ruptures`, contracts et accès `public` sur les trois marts, garde des accès ; `make test-tout` 540.
@@ -354,36 +390,37 @@ J3 est clos : `make bootstrap` rejouable (deux passages, run 2 identique au run 
 
 J4 est clos sur le correctif de `charger` (`4fa7b1f`), la purge confirmée par le contenu (écrite et testée, non branchée), les mutations de la purge et quatre tests ajoutés (`848b170`, `6f281bb`, `83b498a`, `05494b7`), et le test de transmission du jeton (`f35c605`). Le DAG de chargement vers Databricks n'est pas écrit : le critère initial de J4 n'est pas atteint, il est reporté en J5 par décision de l'utilisateur.
 
-## 2. État (2026-11-17, dernière mesure : identifiants des conteneurs et mémoire à 14:33 UTC)
+## 2. État (2026-11-26, dernière mesure : identifiants des conteneurs à 11:01 UTC, mémoire à 12:23 UTC)
 
-- Mise à jour du 25/11 : image du service `observatoire-carburant-airflow` construite le 25/11 (`sha256:5875415f...`, 3,91 GB) ; conteneur en marche sur `sha256:3e865283...` ; ni `make up` ni `up` sans `--no-recreate` avant la recréation prévue (section 1) ; tests 556 (25/11) ; détail au bloc 0.
+- Mise à jour du 26/11 : airflow recréé à 11:01 (`4f3988e13a11...`, créé 2026-11-26T11:01:28Z, image `sha256:5875415f...` avec `/opt/dbt-venv` et `dbt/` monté en `ro`) ; postgres inchangé (`9b3b0a0f...`) ; ancienne image `sha256:3e865283...` (sans tag) gardée pour le retour arrière, suppression à décider ; DAG actifs : `collecte_flux`, `chargement_bronze`, `transformation_dbt` ; tests 563 (`make test` 485, `make test-bootstrap` 73, `make test-dbt-garde` 5 ; 12:56 UTC, code 0) ; bronze à 322 600 et 36 948 lignes, curseurs au 2026-11-26 10:00 ; `carburant_gold` relu à 12:25 (comptes au bloc 0) ; mémoire d'airflow 1,788 Gio à 11:02, maximum relevé 2,603 Gio pendant le build dbt.
+- Mise à jour du 25/11 : image du service `observatoire-carburant-airflow` construite le 25/11 (`sha256:5875415f...`, 3,91 GB) ; tests 556 (25/11) ; détail au bloc 0a.
 - Collecte en marche (DAG `collecte_flux`, toutes les 15 minutes, `catchup=False`) ; runs de 14:00, 14:15 et 14:30 UTC le 17/11 en `success`. `chargement_bronze` actif (12:20 UTC chaque jour), run du 17/11 de 12:20 en `success` (12:20:00 à 12:21:31).
 - Tests : `make test` (conteneur) 458, `make test-bootstrap` (hôte) 73, `make test-dbt-garde` (hôte, `.venv-dbt`) 4, soit **535** pour `make test-tout` (17/11 14:31 UTC, code retour 0).
-- Dépôt : `origin/main` à `052cbb1` au début de la séance du 24/11 ; commits du 24/11 listés au bloc 0a ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
-- Mise à jour du 24/11 : tests 540 ; `carburant_gold` (comptes relus de 12:47 à 12:49 UTC) : tables `dim_commune` (34 920, non reconstruite le 24/11), `dim_station` (11 506), `fct_ruptures` (41 095), `fct_prix` (288 988), `mart_prix_commune_jour` (224 961) ; bronze à 288 988 et 35 461 lignes (14:01 UTC), curseurs au 2026-11-24 10:00 ; détail au bloc 0a.
-- Mise à jour du 23/11 : tests 540 (15:58 UTC) ; `carburant_gold` : tables `dim_commune` (34 920), `dim_station` (11 498), `fct_ruptures` (40 596) ; `carburant_silver` : vue `int_ruptures__observations` en plus ; détail au bloc 0b.
-- Mise à jour du 19/11 : tests 535 (17:31 UTC), bronze à 233 649 et 31 799 lignes (16:05 UTC), curseurs au 2026-11-19 10:00, détail au bloc 0c ; le reste de cette section date du 17/11.
-- dbt (24/11) : `carburant_silver` : 7 vues de staging, les vues `int_stations__commune` et `int_ruptures__observations` ; `carburant_gold` : les tables `dim_commune`, `dim_station`, `fct_ruptures`, `fct_prix` et `mart_prix_commune_jour`, publiques sous contract. Variables du projet : `cog_millesime`, `filosofi_millesime`, `prix_plausible_min` (0.5), `prix_plausible_max` (3.5), `ecart_midi_max_minutes` (30), `prix_age_max_jours` (90). Détail au bloc 0a.
+- Dépôt : `origin/main` à `052cbb1` au début de la séance du 24/11 ; commits du 24/11 listés au bloc 0b ; push prévu juste après ce commit, à vérifier par `git ls-remote` à la reprise.
+- Mise à jour du 24/11 : tests 540 ; `carburant_gold` (comptes relus de 12:47 à 12:49 UTC) : tables `dim_commune` (34 920, non reconstruite le 24/11), `dim_station` (11 506), `fct_ruptures` (41 095), `fct_prix` (288 988), `mart_prix_commune_jour` (224 961) ; bronze à 288 988 et 35 461 lignes (14:01 UTC), curseurs au 2026-11-24 10:00 ; détail au bloc 0b.
+- Mise à jour du 23/11 : tests 540 (15:58 UTC) ; `carburant_gold` : tables `dim_commune` (34 920), `dim_station` (11 498), `fct_ruptures` (40 596) ; `carburant_silver` : vue `int_ruptures__observations` en plus ; détail au bloc 0c.
+- Mise à jour du 19/11 : tests 535 (17:31 UTC), bronze à 233 649 et 31 799 lignes (16:05 UTC), curseurs au 2026-11-19 10:00, détail au bloc 0d ; le reste de cette section date du 17/11.
+- dbt (24/11) : `carburant_silver` : 7 vues de staging, les vues `int_stations__commune` et `int_ruptures__observations` ; `carburant_gold` : les tables `dim_commune`, `dim_station`, `fct_ruptures`, `fct_prix` et `mart_prix_commune_jour`, publiques sous contract. Variables du projet : `cog_millesime`, `filosofi_millesime`, `prix_plausible_min` (0.5), `prix_plausible_max` (3.5), `ecart_midi_max_minutes` (30), `prix_age_max_jours` (90). Détail au bloc 0b.
 - Bronze : `prix_flux`, `station_etat_flux` et les 5 tables `ref_*` (SHOW TABLES du 17/11 à 10:48 UTC). SHOW SCHEMAS : 10 noms, inchangés le 17/11 (relus à 13:10 et 13:17 UTC).
 - Lots Parquet : `charger` ne supprime plus ses fichiers (logique dans `ingestion/lots.py`). `purger_lots` (âge supérieur à 48 h ET prix par clé et états par station et hash retrouvés dans Postgres, confirmation écrite dans `purge_journal.jsonl`) **n'est branchée nulle part**. `data/lots` grossit (16:31 : 78 fichiers, 193 168 Kio ; les 48 fichiers du 09/11 pèsent 137 590 639 octets ; extrapolation, non mesurée sur 24 h : environ 550 Mo par jour). Les 20 lots d'avant le 09/11 (12 retrouvés par contenu dont 7 lots du 05/11 dont les états avaient été bloqués par le garde-fou, 8 du 23/10 avec une `maj` décalée de 2 h) ne sont ni rechargés ni purgés (décision de l'utilisateur).
 - Tables de référence dans la base `collecte` : `ref_cog_commune` 37 496 lignes (millésime 2026), `ref_cog_departement` 101, `ref_cog_region` 18, `ref_filosofi_commune` 34 813 lignes (millésime 2023, 34 768 communes plus 45 arrondissements). Clé de `ref_filosofi_commune` : (`millesime`, `geo_object`, `codgeo`).
 - Databricks (catalogue `workspace`) : schémas `carburant_bronze`, `carburant_silver`, `carburant_gold` et Volume `carburant_bronze.depot` créés le 06/11 ; dossier `referentiels/` du Volume (un Parquet par table et par chargement, les anciens restent : `ref_cog_region` en a deux). Les 7 schémas existants (`bronze`, `silver`, `gold`, `ci_silver`, `ci_gold`, `default`, `information_schema`) sont inchangés. Token valide jusqu'au 2027-06-17 (information de l'utilisateur).
 - Airflow : `AIRFLOW__CORE__PARALLELISM=2` (commit `0695b7c`). Métadonnées sur la base Postgres `airflow` depuis le 16/11 13:05 UTC (historique des runs antérieur perdu, ancienne base sauvegardée).
 - Pile EnergiScope : projet terminé et publié, ses 7 conteneurs sont à `restart=no` et arrêtés. `make reprise` avertit si une autre pile compose tourne.
-- Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261116T124713Z.dump` et `airflow_20261116T124713Z.dump` (avant la bascule du 16/11) ; `collecte_20261108T145530Z.dump` (6 974 655 octets, UTC), pris à l'arrêt propre du 08/11 ; `collecte_20261106T130019Z.dump` (avant la recréation d'airflow) ; `collecte_20261105T143645Z.dump`. Faire un `pg_dump` frais avant toute recréation.
+- Sauvegardes (`data/backups`, ignoré par git) : `collecte_20261126T100628Z.dump` (13 485 288 octets) et `airflow_20261126T100628Z.dump` (247 173 octets), avant la recréation du 26/11, empreintes au bloc 0 ; `collecte_20261116T124713Z.dump` et `airflow_20261116T124713Z.dump` (avant la bascule du 16/11) ; `collecte_20261108T145530Z.dump` (6 974 655 octets, UTC), pris à l'arrêt propre du 08/11 ; `collecte_20261106T130019Z.dump` (avant la recréation d'airflow) ; `collecte_20261105T143645Z.dump`. Faire un `pg_dump` frais avant toute recréation.
 - Pas d'hôte 24/7 : la collecte s'arrête avec le projet (jusqu'à J15 plus 7 jours), à écrire dans le README.
 - Fiches : `docs/fiches-source/carburants.md` (section J6 du 17/11 : flux quotidien et `com_arm_code`), `cog.md`, `filosofi.md`, `sirene.md`.
-- Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 31 entrées au 17/11, cause étiquetée établie, hypothèse ou inconnue). Détail des jours : `docs/journal/J6.md`, `docs/journal/J5_dbt.md`, `docs/journal/J3.md`, `docs/journal/J4.md` et `docs/journal/J4_mutations_purge.md` (ignorés).
+- Journal de leçons : `docs/journal/learnings.md` (ignoré par git, 45 entrées au 26/11, cause étiquetée établie, hypothèse ou inconnue). Détail des jours : `docs/journal/J6.md`, `docs/journal/J5_dbt.md`, `docs/journal/J3.md`, `docs/journal/J4.md` et `docs/journal/J4_mutations_purge.md` (ignorés).
 - Règles de pédagogie : section « Pédagogie et leçons » de `CLAUDE.md` (expliquer en une ou deux lignes les commandes qui modifient un état, entrée de trois lignes dans `learnings.md` après chaque correction comprise, recouper les messages qui citent des étapes déjà faites, aucun commit de `docs/fiches-source` sans accord).
 
 ### Identifiants des conteneurs (à comparer après `make pause` puis `make reprise`)
 
 ```text
-observatoire-carburant-airflow-1   f12be32bd7bc75c3bc9ad08fc431a64e10600bc603c85bf94ebe92f5c80dac62   created 2026-11-16T13:05:37Z   image 3e865283013c
+observatoire-carburant-airflow-1   4f3988e13a11dd9b6d644020fe017181af637fa53806c3cfb5ee969921bed943   created 2026-11-26T11:01:28Z   image 5875415f2e64
 observatoire-carburant-postgres-1  9b3b0a0f2f3f4fa44de11f957919be837b800d6054ded613a5631df8c1805c9d   created 2026-11-06T12:20:55Z
 volume                             observatoire-carburant_pg_data
 ```
-airflow recréé le 16/11 (bascule, procédure du bloc 0f) ; postgres inchangé depuis le 06/11. Commande : `docker inspect observatoire-carburant-airflow-1 observatoire-carburant-postgres-1 --format "{{.Name}} {{.Id}}"`. Si un identifiant change, un conteneur a été recréé : incident (métadonnées d'Airflow perdues, DAG en pause).
+airflow recréé le 26/11 à 11:01 (avant : `f12be32bd7bc...`, recréé le 16/11, image `3e865283013c`) ; postgres inchangé depuis le 06/11. Commande : `docker inspect observatoire-carburant-airflow-1 observatoire-carburant-postgres-1 --format "{{.Name}} {{.Id}} {{.Image}} {{.State.StartedAt}}"` ; StartedAt montre un redémarrage, que l'identifiant ne montre pas. Si un identifiant change, un conteneur a été recréé : incident (métadonnées d'Airflow perdues, DAG en pause).
 
 ### Relevés de mémoire du conteneur airflow
 
@@ -411,6 +448,10 @@ Après `parallelism=2` (workers corrigés : le script de relevé n'est pas compt
 | 17/11 10:47 | 2,42 Gio (avant charger-referentiels-bronze) | non relevé | non relevé | non relevé |
 | 17/11 10:48 | 2,453 Gio (après) | non relevé | non relevé | non relevé |
 | 17/11 14:33 | 2,527 Gio | 141 | non relevé | non relevé |
+| 26/11 09:22 | 2,255 Gio | 140 | non relevé | non relevé |
+| 26/11 11:02 | 1,788 Gio (conteneur recréé à 11:01) | 135 | non relevé | non relevé |
+| 26/11 11:20 | 2,014 Gio | 138 | non relevé | non relevé |
+| 26/11 12:22 à 12:23 | maximum 2,603 Gio (build dbt, 4 relevés) | non relevé | non relevé | non relevé |
 
 Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au plus, pente sous 0,1 Gio par heure, alerte au-dessus de 3,5 Gio (jamais franchie, maximum 2,262 Gio). Pente (moindres carrés) : **0,103 Gio par heure le 06/11 et 0,103 le 08/11** (13:05 à 14:27, 4 relevés, 82 minutes ; 0,233 avec le relevé de 12:35 pris avant que les workers existent, point biaisé) : le seuil de 0,1 n'est pas tenu, de très peu. Un worker pèse environ 200 Mio de RSS. Cause de la pente résiduelle : hypothèse, non cherchée.
 
@@ -433,7 +474,7 @@ Critère provisoire : au moins 5 relevés sur 90 minutes ou plus, 2 workers au p
 - dbt : staging en vue privée (`carburant_silver`), intermediate en vue `protected` (`carburant_silver`), marts en table `protected` (`carburant_gold`), contracts et `public` en J8. `charge_ts` = heure du bronze dans tous les modèles. Millésimes par variables (`cog_millesime`, `filosofi_millesime`).
 - dbt (16/11) : dbt Core 1.12.6 et dbt-databricks 1.13.0 sur l'hôte dans `.venv-dbt` (Python 3.12), séparé de `.venv` (3.14) et de l'image Airflow ; `dbt/profiles.yml` versionné en `env_var` seulement ; macro `generate_schema_name` (schéma personnalisé tel quel) ; staging en vue, privé, groupe `carburants`, dans `carburant_silver` ; tests rattachés à `carburant_silver` ; garde pytest des schémas sur le manifest (`dbt parse` sans connexion). Jamais de `dbt run` ni de `dbt build` sans `--select` ; `dbt ls` des schémas avant un premier run.
 - **`dbt/logs/` et `dbt/target/` ne sont jamais affichés en brut ni collés** (`dbt.log` contient l'hôte et le `http_path`) : recherche ciblée, hôte, `http_path` et identifiant d'entrepôt masqués.
-- Freshness des sources bronze sur `collecte_ts` (fraîcheur de la donnée, pas `_charge_ts`) : warn 28 h, error 52 h (calcul au bloc 0d).
+- Freshness des sources bronze sur `collecte_ts` (fraîcheur de la donnée, pas `_charge_ts`) : warn 28 h, error 52 h (calcul au bloc 0e).
 - Staging des états : coordonnées = clés `latitude` et `longitude` divisées par 100 000 (égales à `geom`, écart 0) ; ruptures, horaires et services gardés bruts (J7) ; `geom`, `services`, `horaires_jour` et les 12 clés de rupture par carburant non repris.
 - Databricks : catalogue `workspace`, Volume `carburant_bronze.depot`, schémas `carburant_*`. Les schémas `bronze`, `silver`, `gold`, `ci_silver`, `ci_gold` et `default` appartiennent à un AUTRE projet (EnergiScope) : jamais touchés (test sur les noms qualifiés).
 - Bootstrap : trois contrôles distincts (variables nommées, authentification dans un processus enfant tué après 30 s, entrepôt prêt par `SELECT 1` scruté au plus 5 fois), au plus 5 interrogations par requête, arrêt à la première erreur, aucune valeur sensible affichée. Un entrepôt serverless arrêté démarre à la première requête.
@@ -571,9 +612,9 @@ purge_journal.jsonl         une ligne JSON par lot confirmé : lot, confirme, co
 make up                                  docker compose up -d --build (RECRÉE : premier démarrage ou changement de configuration, après pg_dump)
 make pause                               docker compose stop (jamais avant la fin de séance)
 make reprise                             up -d --no-recreate, unpause si besoin, 5 runs, comptes, 5 passages, autres piles, mémoire et PIDS, verdict
-make test                                tests du conteneur (462 le 24/11), base de métadonnées sqlite dédiée
+make test                                tests du conteneur (485 le 26/11), base de métadonnées sqlite dédiée
 make test-bootstrap                      tests du bootstrap Databricks sur l'hôte, dans .venv (73)
-make test-tout                           conteneur, hôte et garde dbt (540 le 24/11) : critère vert
+make test-tout                           conteneur, hôte et garde dbt (563 le 26/11) : critère vert
 make test-dbt-garde                      garde des schémas dbt (5), .venv-dbt, dbt parse sans connexion ni .env
 make dbt ARGS="debug"                    dbt dans .venv-dbt (inclut .env pour cette cible, DBT_PROFILES_DIR et DBT_PROJECT_DIR sur dbt/)
 make dbt ARGS="deps"                     installe dbt_utils 1.4.1 dans dbt/dbt_packages
@@ -601,6 +642,10 @@ git ls-remote origin refs/heads/main     tête réelle du dépôt distant (lectu
 make lire-bronze ARGS="--table toutes"   lecture seule du bronze : total, min, max, doublons ; --debut ISO --fin ISO pour une plage [debut, fin[
 make charger-bronze ARGS="--table T --max-fenetres 48 --max-appels N"   chargement manuel (conteneur jetable), lancer entre :02 et :08
 docker compose run --rm --no-deps -T airflow bash -c '/opt/dbt-venv/bin/dbt ...'   dbt en conteneur jetable (MSYS_NO_PATHCONV=1 sous Git Bash)
+docker compose exec -T airflow bash -c '/opt/dbt-venv/bin/dbt --version; ls -ld /opt/airflow/dbt'   dbt du conteneur en marche (1.12.6, databricks 1.13.0)
+docker compose exec -T airflow grep /opt/airflow/dbt /proc/mounts   montage du projet dbt : ro attendu
+docker compose exec -T airflow airflow dags list-runs transformation_dbt   runs du build automatique (déclenchés par l'Asset carburant_bronze)
+docker compose exec -T airflow airflow tasks states-for-dag-run transformation_dbt <run_id>   état et heures de la tâche construire
 docker compose exec -T airflow ls -l /opt/airflow/simple_auth_manager_passwords.json.generated   mot de passe de l'interface : lire le fichier soi-même, jamais dans un rapport
 ```
 
@@ -634,11 +679,14 @@ Sur Git Bash, préfixer `MSYS_NO_PATHCONV=1` pour les chemins de conteneur (par 
 
 ## 7. Points ouverts
 
-- J10 : image de 3,91 GB, place disque de Docker Desktop non mesurée.
+- J10 : pic de mémoire au début du build (avant 12:22 le 26/11) non relevé ; maximum vu 2,603 Gio.
+- J10 : retry à 10 minutes et délai de 30 minutes de `transformation_dbt` jamais observés (aucun échec ni dépassement).
+- J10 : Asset émis pendant que `transformation_dbt` est en pause : comportement non vérifié (file d'attente ou perte).
+- J10 : place disque de Docker Desktop non mesurée (image de 3,91 GB, ancienne image gardée ; build cache 6,875 GB dont 3,658 GB récupérables le 26/11 au matin).
 - J10 : `dbt debug` sort en code 2 avec `--target-path` (cause probable : option refusée, non confirmée) ; les chemins passent par `DBT_TARGET_PATH` et `DBT_LOG_PATH`.
 - J10 : 24/11, `.env` lu pour un contrôle de secrets (rien affiché) ; règle rappelée : contrôle par motifs seulement, entrée dans `learnings.md`.
 - J9 : refus de l'entrepôt du 24/11 (`BAD_REQUEST: Cannot create the resource`, mesuré de 07:53:22 à 07:55:04, OK vers 09:18 selon les sondes de l'utilisateur) : cause inconnue.
-- J9 : dbt non orchestré : après chaque chargement, les tables de `carburant_gold` sont en retard sur le bronze et un enfant reconstruit seul casse son `relationships` (station 62112001, entrée le 24/11). Candidat de J10.
+- J9 : résolu le 26/11 par `transformation_dbt` (J10). dbt non orchestré : après chaque chargement, les tables de `carburant_gold` sont en retard sur le bronze et un enfant reconstruit seul casse son `relationships` (station 62112001, entrée le 24/11).
 - J9 : bornes de prix relatives au carburant reportées : 157 lignes hors [80 %, 130 %] de la médiane de leur carburant, dont 98 en E85 (M2b).
 - J9 : GPLc : 10,8 % des prix en vigueur hors rupture ont plus de 90 jours et sont exclus du mart (M7b, 21/11) ; une partie est sans doute stable et non morte.
 - J9 : 367 lignes du mart sans niveau de vie ; 194 versions de `fct_prix` sans commune.
